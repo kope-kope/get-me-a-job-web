@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { UserMenu } from "@/components/user-menu";
 import { scopeStatus } from "@/lib/scopes";
-import { findMasterResume, findStoriesDoc } from "@/lib/google";
+import { findMasterResume, findStoriesDoc, listApplications, type ApplicationSummary } from "@/lib/google";
 
 export default async function Dashboard() {
   const session = await auth();
@@ -18,6 +18,10 @@ export default async function Dashboard() {
   const stories = status.drive && session.accessToken
     ? await findStoriesDoc(session.accessToken)
     : null;
+  const applications: ApplicationSummary[] =
+    status.drive && session.accessToken
+      ? await listApplications(session.accessToken)
+      : [];
 
   const needsResume = status.drive && !master;
   const canApply = !!master;
@@ -91,10 +95,45 @@ export default async function Dashboard() {
       )}
 
       <section className="mt-10">
-        <h2 className="text-sm font-medium text-[var(--color-muted)]">Your applications</h2>
-        <div className="mt-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-subtle)] p-8 text-center text-sm text-[var(--color-muted)]">
-          No applications yet. Paste a JD and we&apos;ll get you started.
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-medium text-[var(--color-muted)]">
+            Your applications
+            {applications.length > 0 && (
+              <span className="ml-2 text-xs">({applications.length})</span>
+            )}
+          </h2>
+          <span className="text-xs text-[var(--color-muted)]">
+            Read live from your Drive · no database
+          </span>
         </div>
+        {applications.length === 0 ? (
+          <div className="mt-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-subtle)] p-8 text-center text-sm text-[var(--color-muted)]">
+            No applications yet. Paste a JD and we&apos;ll get you started.
+          </div>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {applications.map((app) => (
+              <li key={app.id}>
+                <a
+                  href={app.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-xl border border-[var(--color-border)] p-4 transition hover:border-[var(--color-accent)]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium">{app.name}</div>
+                    <div className="text-xs text-[var(--color-muted)]">
+                      {formatRelativeDate(app.createdTime)}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-xs text-[var(--color-muted)]">
+                    Open the Drive folder →
+                  </div>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="mt-10 text-xs text-[var(--color-muted)]">
@@ -135,4 +174,23 @@ export default async function Dashboard() {
       </section>
     </main>
   );
+}
+
+function formatRelativeDate(iso: string): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffMs = Date.now() - then;
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.floor(diffHr / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }

@@ -257,6 +257,43 @@ export async function findStoriesDoc(accessToken: string): Promise<{ id: string;
   return findFileByName(accessToken, STORIES_NAME, folder.id);
 }
 
+export type ApplicationSummary = {
+  id: string;
+  name: string;
+  url: string;
+  createdTime: string;
+  modifiedTime: string;
+};
+
+/**
+ * List every per-job subfolder inside the user's Job Search folder.
+ * Each subfolder was created by /api/tailor when they applied to a job,
+ * so this doubles as their application history — no database required.
+ * Drive IS the database.
+ */
+export async function listApplications(
+  accessToken: string,
+  limit = 25,
+): Promise<ApplicationSummary[]> {
+  const drive = driveClient(accessToken);
+  const folder = await ensureJobSearchFolder(accessToken);
+  const res = await drive.files.list({
+    q: `mimeType='application/vnd.google-apps.folder' and '${folder.id}' in parents and trashed=false`,
+    fields: "files(id, name, createdTime, modifiedTime)",
+    orderBy: "createdTime desc",
+    pageSize: limit,
+  });
+  return (res.data.files ?? [])
+    .filter((f) => !!f.id && !!f.name)
+    .map((f) => ({
+      id: f.id!,
+      name: f.name!,
+      url: `https://drive.google.com/drive/folders/${f.id}`,
+      createdTime: f.createdTime ?? "",
+      modifiedTime: f.modifiedTime ?? "",
+    }));
+}
+
 /**
  * @deprecated use registerMasterResume + copyDoc instead. Left here so
  * the previous /api/resume/save route keeps compiling until removed.
