@@ -67,7 +67,12 @@ After research is done, output ONLY a JSON object matching this exact shape. No 
   "notes": "<one paragraph on what you searched for and what to double-check>"
 }
 
-If the company you were given doesn't match a real company or your searches turn up nothing usable, return {"company": "<name>", "contacts": [], "notes": "<why the search failed>"} — the downstream pipeline degrades gracefully.`;
+If the company you were given doesn't match a real company or your searches turn up nothing usable, return {"company": "<name>", "contacts": [], "notes": "<why the search failed>"} — the downstream pipeline degrades gracefully.
+
+FINAL OUTPUT DISCIPLINE — read this twice:
+- Do all your thinking, narration, and reasoning DURING the web_search rounds.
+- After your LAST search, your VERY LAST message must be nothing but the JSON object. No preamble, no "Here are the results:", no summary sentence. If the last thing you write is not a valid JSON object starting with { and ending with }, the entire pipeline fails.
+- If you catch yourself typing "Now let me submit..." — stop. Just output the JSON.`;
 
 function buildUserMessage(input: {
   jd: string;
@@ -112,29 +117,46 @@ export async function researchContacts(input: {
     messages,
   });
 
-  // Claude's final answer lives in text blocks. Server-side tool blocks
-  // (server_tool_use / web_search_tool_result) are handled by Anthropic
-  // and don't need our attention here.
-  const finalText = response.content
+  // Claude's response has multiple text blocks — each round of web_search
+  // interleaves narration ("I've found Adam Mulliken, let me search for
+  // his LinkedIn…") with server_tool_use blocks. The final JSON is in the
+  // LAST text block, not the concatenation of all of them.
+  const textBlocks = response.content
     .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("")
-    .trim();
+    .map((b) => (b as { text: string }).text);
 
-  const cleaned = finalText
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
+  const parseAttempt = (raw: string): ResearchResult | null => {
+    const trimmed = raw.trim();
+    // Strip common wrappers Claude sometimes still emits despite prompt.
+    const stripped = trimmed
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    // Find the outermost {...} in case there's stray prose before/after.
+    const first = stripped.indexOf("{");
+    const last = stripped.lastIndexOf("}");
+    if (first === -1 || last === -1 || last <= first) return null;
+    const candidate = stripped.slice(first, last + 1);
+    try {
+      return JSON.parse(candidate) as ResearchResult;
+    } catch {
+      return null;
+    }
+  };
 
-  let parsed: ResearchResult;
-  try {
-    parsed = JSON.parse(cleaned) as ResearchResult;
-  } catch (err) {
+  // Try the last text block first (that's where the JSON should be), then
+  // fall back to earlier blocks if the last one is empty or malformed.
+  let parsed: ResearchResult | null = null;
+  for (let i = textBlocks.length - 1; i >= 0 && !parsed; i--) {
+    parsed = parseAttempt(textBlocks[i]);
+  }
+
+  if (!parsed) {
+    const preview = (textBlocks[textBlocks.length - 1] ?? "").slice(0, 400);
     throw new Error(
-      `Research response wasn't valid JSON. First 200 chars: ${finalText.slice(
-        0,
-        200,
-      )}. Parse error: ${err instanceof Error ? err.message : String(err)}`,
+      `Research produced ${textBlocks.length} text block${
+        textBlocks.length === 1 ? "" : "s"
+      } but none contained valid JSON. Last block preview: ${preview}`,
     );
   }
 
