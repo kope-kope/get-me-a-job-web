@@ -10,9 +10,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "get-me-a-job — for Berkeley Haas MBAs",
+  title: "get-me-a-job — apply in 10 minutes",
   description:
-    "Paste a job description. Get a tailored resume, a cover letter that sounds human, and a cold email — all in your Google Drive and Gmail.",
+    "Paste a job description. Get a tailored resume, a cover letter that sounds human, and a cold email to a real hiring manager. All saved to your Google Drive and Gmail.",
 };
 
 export default function RootLayout({

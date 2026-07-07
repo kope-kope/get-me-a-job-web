@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: isPerm
-          ? "I can't open that doc. Make sure it's shared with your @berkeley.edu account, or you're signed into the same account."
+          ? "I can't open that doc. Make sure it's shared with the Google account you're signed in with, and that you own it or have edit access."
           : message,
       },
       { status: isPerm ? 403 : 500 },

@@ -3,9 +3,9 @@ import { CmgResumePreview } from "@/components/cmg-resume-preview";
 import { EXAMPLE_RESUME } from "@/lib/example-resume";
 
 export const metadata = {
-  title: "Example resume — Haas CMG format",
+  title: "Example resume — CMG one-pager format",
   description:
-    "What a well-formatted Berkeley Haas MBA resume looks like. Use this as a reference for the master resume you upload to get-me-a-job.",
+    "What a well-formatted one-page MBA-style resume looks like. Use this as a reference for the master resume you upload to get-me-a-job.",
 };
 
 export default function ExampleResumePage() {
@@ -13,7 +13,7 @@ export default function ExampleResumePage() {
     <main className="mx-auto max-w-4xl px-6 py-10">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <p className="text-sm text-[var(--color-muted)]">Reference · Haas CMG format</p>
+          <p className="text-sm text-[var(--color-muted)]">Reference · MBA one-pager format</p>
           <h1 className="mt-1 text-2xl font-semibold">What a good master resume looks like</h1>
         </div>
         <Link
@@ -25,10 +25,9 @@ export default function ExampleResumePage() {
       </div>
 
       <p className="mt-3 max-w-2xl text-sm text-[var(--color-muted)]">
-        This is the format the Career Management Group teaches — bold-caps section headers,
-        right-aligned dates, italic role titles, action-verb bullets with real metrics. Point our
-        app at a Google Doc formatted like this, and every tailored resume it produces will keep
-        the same shape.
+        A one-page format most MBA career offices teach — bold-caps section headers, right-aligned
+        dates, italic role titles, action-verb bullets with real metrics. Point our app at a Google
+        Doc formatted like this, and every tailored resume it produces will keep the same shape.
       </p>
 
       <div className="mt-8 overflow-hidden rounded-xl border border-[var(--color-border)] bg-neutral-100 p-6 dark:bg-neutral-900">

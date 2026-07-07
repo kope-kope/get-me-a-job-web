@@ -22,9 +22,9 @@ export default async function ResumeStep() {
       </p>
 
       <p className="mt-3 text-xs text-[var(--color-muted)]">
-        Not sure what format Haas expects?{" "}
+        Not sure what a good format looks like?{" "}
         <Link href="/example-resume" className="underline">
-          See the CMG example →
+          See an example →
         </Link>
       </p>
 

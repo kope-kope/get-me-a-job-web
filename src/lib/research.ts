@@ -27,7 +27,7 @@ export type ResearchResult = {
   notes?: string;
 };
 
-const RESEARCH_SYSTEM_PROMPT = `You are researching cold-outreach targets for a Berkeley Haas MBA job applicant. You have web_search available — use it liberally.
+const RESEARCH_SYSTEM_PROMPT = `You are researching cold-outreach targets for a job applicant. You have web_search available — use it liberally.
 
 Your job: given the applicant's resume, the target company, and the role, identify THREE real, currently-employed people at the target company who would be strong warm-outreach targets for THIS applicant.
 

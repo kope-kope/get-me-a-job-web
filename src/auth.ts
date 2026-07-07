@@ -2,8 +2,8 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
 /**
- * Base OAuth scopes granted at sign-in — just enough to identify the user
- * and confirm they're on the Berkeley Workspace.
+ * Base OAuth scopes granted at sign-in — just enough to identify the user.
+ * Drive and Gmail scopes are added later via incremental authorization.
  */
 const BASE_SCOPES = ["openid", "email", "profile"];
 
@@ -15,8 +15,6 @@ export const EXTRA_SCOPES = {
   drive: ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/documents"],
   gmail: ["https://www.googleapis.com/auth/gmail.modify"],
 } as const;
-
-export const ALLOWED_EMAIL_DOMAINS = ["berkeley.edu"] as const;
 
 /** Refresh the access token this many seconds before it actually expires. */
 const EXPIRY_BUFFER_SECONDS = 60;
@@ -75,9 +73,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async signIn({ user }) {
-      const email = user.email ?? "";
-      const domain = email.split("@")[1]?.toLowerCase();
-      return ALLOWED_EMAIL_DOMAINS.includes(domain as (typeof ALLOWED_EMAIL_DOMAINS)[number]);
+      // Public app — any authenticated Google user can sign in. If you ever
+      // need to gate by email domain again, filter user.email here.
+      return !!user.email;
     },
     async jwt({ token, account }) {
       // Fresh sign-in — store everything the OAuth provider handed us.
