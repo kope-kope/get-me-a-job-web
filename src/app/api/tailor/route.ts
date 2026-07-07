@@ -10,6 +10,7 @@ import {
   replaceAllText,
 } from "@/lib/google";
 import { anthropic, MODEL } from "@/lib/anthropic";
+import { humanizeFinal } from "@/lib/humanize";
 import { prompts } from "@/lib/prompts";
 
 export const runtime = "nodejs";
@@ -134,6 +135,16 @@ export async function POST(req: NextRequest) {
 
         send("progress", { step: "analyze", message: "Analyzing the JD and rewriting bullets…" });
         const plan = await generatePlan(masterText, jd);
+
+        // Sanitize every newText Claude produced. Em-dashes and curly quotes
+        // in bullet rewrites would land in the Google Doc otherwise.
+        plan.bullets = plan.bullets.map((b) => ({
+          ...b,
+          newText: humanizeFinal(b.newText),
+          reason: humanizeFinal(b.reason ?? ""),
+        }));
+        plan.gapReport = humanizeFinal(plan.gapReport ?? "");
+        plan.positioning = humanizeFinal(plan.positioning ?? "");
 
         if (plan.bullets.length === 0) {
           send("plan", plan);

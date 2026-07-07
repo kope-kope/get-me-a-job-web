@@ -1,4 +1,5 @@
 import { anthropic, MODEL } from "@/lib/anthropic";
+import { StreamHumanizer } from "@/lib/humanize";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 
 export type StreamOptions = {
@@ -23,6 +24,8 @@ export function streamClaudeResponse(opts: StreamOptions): Response {
         );
       };
 
+      const humanizer = new StreamHumanizer();
+
       try {
         const stream = anthropic().messages.stream({
           model: opts.model ?? MODEL,
@@ -36,9 +39,13 @@ export function streamClaudeResponse(opts: StreamOptions): Response {
             event.type === "content_block_delta" &&
             event.delta.type === "text_delta"
           ) {
-            send("delta", { text: event.delta.text });
+            const cleaned = humanizer.push(event.delta.text);
+            if (cleaned) send("delta", { text: cleaned });
           }
         }
+
+        const tail = humanizer.flush();
+        if (tail) send("delta", { text: tail });
 
         const final = await stream.finalMessage();
         send("done", { usage: final.usage, stopReason: final.stop_reason });
