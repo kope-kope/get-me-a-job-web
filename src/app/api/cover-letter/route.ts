@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { auth, hasGrantedScopes } from "@/auth";
+import { DRIVE_SCOPES } from "@/lib/scopes";
+import { findMasterResume, readDocPlaintext } from "@/lib/google";
 import { prompts } from "@/lib/prompts";
 import { streamClaudeResponse } from "@/lib/stream";
 
@@ -10,14 +12,38 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { jd, resume, company } = (await req.json()) as {
-    jd?: string;
-    resume?: string;
-    company?: string;
-  };
-  if (!jd?.trim() || !resume?.trim()) {
-    return NextResponse.json({ error: "missing jd or resume" }, { status: 400 });
+  if (!hasGrantedScopes(session, DRIVE_SCOPES) || !session.accessToken) {
+    return NextResponse.json(
+      { error: "Google Drive not connected — I need to read your master resume before writing." },
+      { status: 403 },
+    );
   }
+
+  const { jd, company, role } = (await req.json()) as {
+    jd?: string;
+    company?: string;
+    role?: string;
+  };
+  if (!jd?.trim()) return NextResponse.json({ error: "missing jd" }, { status: 400 });
+
+  const master = await findMasterResume(session.accessToken);
+  if (!master) {
+    return NextResponse.json(
+      {
+        error:
+          'No "Master Resume" found in your "Job Search" Drive folder. Register one at /onboarding/resume first.',
+      },
+      { status: 400 },
+    );
+  }
+  const resumeText = await readDocPlaintext(session.accessToken, master.id);
+  if (!resumeText.trim()) {
+    return NextResponse.json({ error: "master resume is empty" }, { status: 400 });
+  }
+
+  const userAddressing = company
+    ? `Company: ${company}${role ? ` · Role: ${role}` : ""}`
+    : "Company: (extract from the JD below)";
 
   return streamClaudeResponse({
     system: prompts.coverLetter(),
@@ -25,10 +51,14 @@ export async function POST(req: NextRequest) {
       {
         role: "user",
         content: [
-          "Here is the user's master resume:\n\n---\n" + resume + "\n---\n\n",
-          "Here is the JD for " + (company ?? "the target company") + ":\n\n---\n" + jd + "\n---\n\n",
-          "Write the cover letter. Follow every rule in your instructions, especially the ~450-500 word body, ",
-          "no em dashes, no 'I'm excited to apply', one anchor story. Output only the letter — no preamble.",
+          "MASTER RESUME (verbatim plaintext from Google Docs):\n\n---\n",
+          resumeText,
+          "\n---\n\n",
+          userAddressing,
+          "\n\nJOB DESCRIPTION:\n\n---\n",
+          jd,
+          "\n---\n\n",
+          "Write the cover letter now. Follow every rule in your instructions — 450-500 word body, one anchor story drawn from the resume, no em dashes, no 'I'm excited to apply', warm sign-off. Output ONLY the letter (Dear [Company] Hiring Team, … Warmly, [Name] etc.) — no preamble, no meta commentary, no requests for extra files. Extract the applicant's name and contact info from the resume header.",
         ].join(""),
       },
     ],

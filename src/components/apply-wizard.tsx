@@ -49,13 +49,21 @@ export function ApplyWizard() {
     setEmailText("");
     setState({ tailor: "running", cover: "idle", email: "idle" });
 
+    // Capture plan locally too — React state may not have flushed by the
+    // time the next streamSSE call runs, and we need company/role for the
+    // downstream endpoints to phrase things correctly. Typed as an object
+    // ref so flow analysis doesn't narrow to `never` inside the closure.
+    const captured: { plan: TailorPlan | null } = { plan: null };
+
     try {
       await streamSSE("/api/tailor", { jd }, {
         onEvent: (event, data) => {
           if (event === "progress") {
             setProgress((data as { message: string }).message);
           } else if (event === "plan") {
-            setPlan(data as TailorPlan);
+            const p = data as TailorPlan;
+            captured.plan = p;
+            setPlan(p);
           } else if (event === "done") {
             setResult(data as TailorResult);
           }
@@ -65,15 +73,17 @@ export function ApplyWizard() {
       setProgress("Writing your cover letter…");
       setTab("cover");
 
-      // Cover letter still streams as markdown into a tab for now.
-      await streamSSE("/api/cover-letter", { jd, resume: "(read from Drive)", company: plan?.company }, {
+      const company = captured.plan?.company;
+      const role = captured.plan?.role;
+
+      await streamSSE("/api/cover-letter", { jd, company, role }, {
         onDelta: (text) => setCoverText((prev) => prev + text),
       });
       setState((s) => ({ ...s, cover: "done", email: "running" }));
       setProgress("Drafting the cold email…");
       setTab("email");
 
-      await streamSSE("/api/email/draft", { jd, resume: "(read from Drive)", company: plan?.company }, {
+      await streamSSE("/api/email/draft", { jd, company, role }, {
         onDelta: (text) => setEmailText((prev) => prev + text),
       });
       setState((s) => ({ ...s, email: "done" }));
