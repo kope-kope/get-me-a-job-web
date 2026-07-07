@@ -1,27 +1,41 @@
 "use client";
 
 import { useState } from "react";
-import { streamText } from "@/lib/sse";
+import { streamSSE } from "@/lib/sse";
 
 type StepState = "idle" | "running" | "done" | "error";
 
-type Result = {
-  tailoredResume: string;
-  coverLetter: string;
-  coldEmail: string;
+type BulletRewrite = { oldText: string; newText: string; reason: string };
+
+type TailorPlan = {
+  company: string;
+  role: string;
+  bullets: BulletRewrite[];
+  gapReport: string;
+  positioning: string;
+  skippedRewrites?: number;
 };
 
-const EMPTY: Result = { tailoredResume: "", coverLetter: "", coldEmail: "" };
+type TailorResult = {
+  tailoredDocUrl: string;
+  subfolderUrl: string;
+  appliedRewrites: number;
+  skippedRewrites: number;
+};
 
-export function ApplyWizard({ resume }: { resume: string }) {
+export function ApplyWizard() {
   const [jd, setJd] = useState("");
   const [started, setStarted] = useState(false);
-  const [result, setResult] = useState<Result>(EMPTY);
   const [state, setState] = useState<Record<string, StepState>>({
     tailor: "idle",
     cover: "idle",
     email: "idle",
   });
+  const [progress, setProgress] = useState<string>("");
+  const [plan, setPlan] = useState<TailorPlan | null>(null);
+  const [result, setResult] = useState<TailorResult | null>(null);
+  const [coverText, setCoverText] = useState("");
+  const [emailText, setEmailText] = useState("");
   const [tab, setTab] = useState<"resume" | "cover" | "email">("resume");
   const [error, setError] = useState<string | null>(null);
 
@@ -29,24 +43,41 @@ export function ApplyWizard({ resume }: { resume: string }) {
     if (!jd.trim()) return;
     setStarted(true);
     setError(null);
-    setResult(EMPTY);
+    setPlan(null);
+    setResult(null);
+    setCoverText("");
+    setEmailText("");
     setState({ tailor: "running", cover: "idle", email: "idle" });
 
     try {
-      await streamText("/api/tailor", { jd, resume }, (text) =>
-        setResult((r) => ({ ...r, tailoredResume: r.tailoredResume + text })),
-      );
+      await streamSSE("/api/tailor", { jd }, {
+        onEvent: (event, data) => {
+          if (event === "progress") {
+            setProgress((data as { message: string }).message);
+          } else if (event === "plan") {
+            setPlan(data as TailorPlan);
+          } else if (event === "done") {
+            setResult(data as TailorResult);
+          }
+        },
+      });
       setState((s) => ({ ...s, tailor: "done", cover: "running" }));
+      setProgress("Writing your cover letter…");
+      setTab("cover");
 
-      await streamText("/api/cover-letter", { jd, resume }, (text) =>
-        setResult((r) => ({ ...r, coverLetter: r.coverLetter + text })),
-      );
+      // Cover letter still streams as markdown into a tab for now.
+      await streamSSE("/api/cover-letter", { jd, resume: "(read from Drive)", company: plan?.company }, {
+        onDelta: (text) => setCoverText((prev) => prev + text),
+      });
       setState((s) => ({ ...s, cover: "done", email: "running" }));
+      setProgress("Drafting the cold email…");
+      setTab("email");
 
-      await streamText("/api/email/draft", { jd, resume }, (text) =>
-        setResult((r) => ({ ...r, coldEmail: r.coldEmail + text })),
-      );
+      await streamSSE("/api/email/draft", { jd, resume: "(read from Drive)", company: plan?.company }, {
+        onDelta: (text) => setEmailText((prev) => prev + text),
+      });
       setState((s) => ({ ...s, email: "done" }));
+      setProgress("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "generation failed");
       setState((s) => {
@@ -83,9 +114,9 @@ export function ApplyWizard({ resume }: { resume: string }) {
   return (
     <div className="mt-8 space-y-6">
       <div className="rounded-xl border border-[var(--color-border)] p-4">
-        <ProgressRow label="Tailored resume" state={state.tailor} />
-        <ProgressRow label="Cover letter" state={state.cover} />
-        <ProgressRow label="Cold email draft" state={state.email} />
+        <ProgressRow label="Tailored resume" state={state.tailor} detail={state.tailor === "running" ? progress : undefined} />
+        <ProgressRow label="Cover letter" state={state.cover} detail={state.cover === "running" ? progress : undefined} />
+        <ProgressRow label="Cold email draft" state={state.email} detail={state.email === "running" ? progress : undefined} />
       </div>
 
       {error && (
@@ -106,17 +137,124 @@ export function ApplyWizard({ resume }: { resume: string }) {
             Cold email
           </TabBtn>
         </div>
-        <pre className="mt-4 max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
-          {tab === "resume" && (result.tailoredResume || "…")}
-          {tab === "cover" && (result.coverLetter || "…")}
-          {tab === "email" && (result.coldEmail || "…")}
-        </pre>
+
+        <div className="mt-4">
+          {tab === "resume" && (
+            <ResumeTab plan={plan} result={result} state={state.tailor} />
+          )}
+          {tab === "cover" && (
+            <pre className="max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
+              {coverText || (state.cover === "idle" ? "Queued — tailored resume runs first." : "…")}
+            </pre>
+          )}
+          {tab === "email" && (
+            <pre className="max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
+              {emailText || (state.email === "idle" ? "Queued — cover letter runs first." : "…")}
+            </pre>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function ProgressRow({ label, state }: { label: string; state: StepState }) {
+function ResumeTab({
+  plan,
+  result,
+  state,
+}: {
+  plan: TailorPlan | null;
+  result: TailorResult | null;
+  state: StepState;
+}) {
+  if (state === "idle") {
+    return <div className="text-sm text-[var(--color-muted)]">Waiting to start…</div>;
+  }
+  if (!plan) {
+    return <div className="text-sm text-[var(--color-muted)]">Reading your master resume…</div>;
+  }
+  return (
+    <div className="space-y-5">
+      {result && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm">
+          <div className="font-medium text-emerald-800">
+            {plan.company} — {plan.role}
+          </div>
+          <div className="mt-1 text-emerald-800/80">
+            {result.appliedRewrites} bullet {result.appliedRewrites === 1 ? "rewrite" : "rewrites"}{" "}
+            applied to your{" "}
+            <a href={result.tailoredDocUrl} target="_blank" rel="noreferrer" className="underline">
+              tailored Google Doc
+            </a>
+            {result.skippedRewrites > 0 && (
+              <span>
+                {" · "}
+                {result.skippedRewrites} skipped (couldn&apos;t match verbatim)
+              </span>
+            )}
+            .
+          </div>
+          <a
+            href={result.tailoredDocUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-block rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-fg)]"
+          >
+            Open in Google Docs →
+          </a>
+        </div>
+      )}
+
+      <div>
+        <h3 className="text-sm font-semibold">Bullet rewrites</h3>
+        <ul className="mt-3 space-y-3">
+          {plan.bullets.map((b, i) => (
+            <li key={i} className="rounded-lg border border-[var(--color-border)] p-3 text-sm">
+              <div className="text-xs uppercase text-[var(--color-muted)]">Before</div>
+              <div className="mt-1 text-red-800/90 line-through">{b.oldText}</div>
+              <div className="mt-3 text-xs uppercase text-[var(--color-muted)]">After</div>
+              <div className="mt-1 text-emerald-800">{b.newText}</div>
+              {b.reason && (
+                <div className="mt-2 text-xs text-[var(--color-muted)] italic">{b.reason}</div>
+              )}
+            </li>
+          ))}
+          {plan.bullets.length === 0 && (
+            <li className="text-sm text-[var(--color-muted)]">
+              Your master resume is already strong for this JD — no bullet rewrites needed.
+            </li>
+          )}
+        </ul>
+      </div>
+
+      {plan.gapReport && (
+        <div>
+          <h3 className="text-sm font-semibold">Gap report</h3>
+          <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm font-sans">
+            {plan.gapReport}
+          </pre>
+        </div>
+      )}
+
+      {plan.positioning && (
+        <div>
+          <h3 className="text-sm font-semibold">Positioning</h3>
+          <p className="mt-2 text-sm">{plan.positioning}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgressRow({
+  label,
+  state,
+  detail,
+}: {
+  label: string;
+  state: StepState;
+  detail?: string;
+}) {
   const dot = {
     idle: "bg-neutral-300",
     running: "bg-blue-500 animate-pulse",
@@ -127,8 +265,14 @@ function ProgressRow({ label, state }: { label: string; state: StepState }) {
     <div className="flex items-center gap-3 py-1.5 text-sm">
       <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot}`} />
       <span className={state === "running" ? "font-medium" : ""}>{label}</span>
-      <span className="ml-auto text-xs text-[var(--color-muted)]">
-        {state === "running" ? "streaming…" : state === "done" ? "done" : state === "error" ? "failed" : "queued"}
+      <span className="ml-auto text-xs text-[var(--color-muted)] truncate max-w-[240px]">
+        {state === "running"
+          ? detail || "streaming…"
+          : state === "done"
+            ? "done"
+            : state === "error"
+              ? "failed"
+              : "queued"}
       </span>
     </div>
   );

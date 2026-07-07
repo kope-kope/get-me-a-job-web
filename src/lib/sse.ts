@@ -1,20 +1,24 @@
 /**
- * Minimal server-sent-events client for streaming Claude responses.
- * Yields text deltas until the stream is done.
+ * Minimal server-sent-events client for our Claude / Drive routes.
  */
-export async function streamText(
-  url: string,
-  body: unknown,
-  onDelta: (chunk: string) => void,
-): Promise<void> {
+export type SSEHandlers = {
+  onDelta?: (text: string) => void;
+  onEvent?: (event: string, data: unknown) => void;
+};
+
+export async function streamSSE(url: string, body: unknown, handlers: SSEHandlers): Promise<void> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok || !res.body) {
-    const err = await res.text();
-    throw new Error(err || `HTTP ${res.status}`);
+    let msg = `HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) msg = j.error;
+    } catch {}
+    throw new Error(msg);
   }
 
   const reader = res.body.getReader();
@@ -26,19 +30,30 @@ export async function streamText(
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    const events = buffer.split("\n\n");
-    buffer = events.pop() ?? "";
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
 
-    for (const evt of events) {
-      const eventType = evt.match(/^event: (.+)$/m)?.[1];
-      const dataLine = evt.match(/^data: (.+)$/m)?.[1];
+    for (const chunk of chunks) {
+      const eventType = chunk.match(/^event: (.+)$/m)?.[1];
+      const dataLine = chunk.match(/^data: (.+)$/m)?.[1];
       if (!dataLine) continue;
       const data = JSON.parse(dataLine);
-      if (eventType === "delta") {
-        onDelta(data.text);
+      if (eventType === "delta" && typeof (data as { text?: string }).text === "string") {
+        handlers.onDelta?.((data as { text: string }).text);
       } else if (eventType === "error") {
-        throw new Error(data.message);
+        throw new Error((data as { message?: string }).message ?? "stream error");
+      } else if (eventType) {
+        handlers.onEvent?.(eventType, data);
       }
     }
   }
+}
+
+// Back-compat helper used by legacy callers.
+export async function streamText(
+  url: string,
+  body: unknown,
+  onDelta: (chunk: string) => void,
+): Promise<void> {
+  return streamSSE(url, body, { onDelta });
 }

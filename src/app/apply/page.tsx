@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { auth, hasGrantedScopes } from "@/auth";
+import { DRIVE_SCOPES } from "@/lib/scopes";
 import { ApplyWizard } from "@/components/apply-wizard";
-
-// Placeholder for the master resume until we read it back from Drive.
-const PLACEHOLDER_RESUME = `# Master resume
-
-_This is a placeholder until we wire Drive read-back into the app. In the meantime, paste your resume text here or edit this file._`;
 
 export default async function ApplyPage() {
   const session = await auth();
   if (!session?.user) redirect("/");
+  if (!hasGrantedScopes(session, DRIVE_SCOPES)) redirect("/onboarding");
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
@@ -25,10 +22,11 @@ export default async function ApplyPage() {
 
       <h1 className="mt-4 text-2xl font-semibold">New application</h1>
       <p className="mt-2 text-sm text-[var(--color-muted)]">
-        Paste the JD. We&apos;ll tailor your resume, write a cover letter, and draft a cold email.
+        Paste the JD. I&apos;ll copy your Master Resume, rewrite the bullets that need to change,
+        and save the tailored doc to a per-job folder in Drive.
       </p>
 
-      <ApplyWizard resume={PLACEHOLDER_RESUME} />
+      <ApplyWizard />
     </main>
   );
 }
