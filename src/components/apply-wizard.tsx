@@ -86,16 +86,26 @@ type EmailStream = {
 
 const OUTREACH_COUNT = 3;
 
+const INITIAL_STATE: Record<string, StepState> = {
+  tailor: "idle",
+  cover: "idle",
+  research: "idle",
+  lookup: "idle",
+  emails: "idle",
+};
+
+function anyRunning(state: Record<string, StepState>) {
+  return Object.values(state).some((s) => s === "running");
+}
+
+function allDone(state: Record<string, StepState>) {
+  return Object.values(state).every((s) => s === "done");
+}
+
 export function ApplyWizard() {
   const [jd, setJd] = useState("");
   const [started, setStarted] = useState(false);
-  const [state, setState] = useState<Record<string, StepState>>({
-    tailor: "idle",
-    cover: "idle",
-    research: "idle",
-    lookup: "idle",
-    emails: "idle",
-  });
+  const [state, setState] = useState<Record<string, StepState>>({ ...INITIAL_STATE });
   const [progress, setProgress] = useState<string>("");
   const [plan, setPlan] = useState<TailorPlan | null>(null);
   const [result, setResult] = useState<TailorResult | null>(null);
@@ -115,6 +125,28 @@ export function ApplyWizard() {
     setEmails((prev) =>
       prev.map((e, i) => (i === index ? { ...e, text: e.text + text } : e)),
     );
+  }
+
+  function reset(confirmFirst = true) {
+    if (confirmFirst && anyRunning(state)) {
+      const ok = window.confirm(
+        "Something's still streaming. Start a new application anyway?",
+      );
+      if (!ok) return;
+    }
+    setJd("");
+    setStarted(false);
+    setState({ ...INITIAL_STATE });
+    setProgress("");
+    setPlan(null);
+    setResult(null);
+    setCoverText("");
+    setCoverSaved(null);
+    setContactSkipped(null);
+    setResearchNotes(null);
+    setEmails([]);
+    setTab("resume");
+    setError(null);
   }
 
   async function run() {
@@ -402,8 +434,37 @@ export function ApplyWizard() {
     );
   }
 
+  const done = allDone(state);
+
   return (
     <div className="mt-8 space-y-6">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <div className="text-[var(--color-muted)]">
+          {plan?.company && plan?.role ? (
+            <>
+              Applying to <span className="font-medium text-[var(--color-foreground)]">{plan.company}</span> ·{" "}
+              {plan.role}
+            </>
+          ) : (
+            "Streaming your application…"
+          )}
+        </div>
+        <button
+          onClick={() => reset()}
+          className="text-xs text-[var(--color-muted)] underline hover:text-[var(--color-foreground)]"
+        >
+          Start over
+        </button>
+      </div>
+
+      {done && result && (
+        <CompletionBanner
+          result={result}
+          emailCount={emails.length}
+          onNewApplication={() => reset(false)}
+        />
+      )}
+
       <div className="rounded-xl border border-[var(--color-border)] p-4">
         <ProgressRow label="Tailored resume" state={state.tailor} detail={state.tailor === "running" ? progress : undefined} />
         <ProgressRow label="Cover letter" state={state.cover} detail={state.cover === "running" ? progress : undefined} />
@@ -467,6 +528,52 @@ export function ApplyWizard() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CompletionBanner({
+  result,
+  emailCount,
+  onNewApplication,
+}: {
+  result: TailorResult;
+  emailCount: number;
+  onNewApplication: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+      <div className="text-sm font-semibold text-emerald-900">
+        Application ready
+      </div>
+      <div className="mt-1 text-sm text-emerald-800/80">
+        Everything&apos;s saved to your{" "}
+        <a
+          href={result.subfolderUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium underline"
+        >
+          {result.company} - {result.role}
+        </a>{" "}
+        folder in Drive — tailored resume, cover letter
+        {emailCount > 0 && `, and ${emailCount} cold email${emailCount === 1 ? "" : "s"}`}
+        . Send the outreach when you&apos;re ready, then move on.
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={onNewApplication}
+          className="rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-accent-fg)]"
+        >
+          Apply to another job
+        </button>
+        <a
+          href="/dashboard"
+          className="rounded-md border border-[var(--color-border)] bg-white px-4 py-2 text-sm hover:bg-neutral-50 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+        >
+          Back to dashboard
+        </a>
       </div>
     </div>
   );
