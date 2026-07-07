@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, hasGrantedScopes } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
-import { findMasterResume, readDocPlaintext } from "@/lib/google";
+import { findMasterResume, findStoriesDoc, readDocPlaintext } from "@/lib/google";
 import { prompts } from "@/lib/prompts";
 import { streamClaudeResponse } from "@/lib/stream";
 
@@ -41,9 +41,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "master resume is empty" }, { status: 400 });
   }
 
+  // Stories are optional. If present, they let Claude write a much more
+  // personal letter grounded in real anchor stories.
+  const stories = await findStoriesDoc(session.accessToken);
+  const storiesText = stories
+    ? (await readDocPlaintext(session.accessToken, stories.id)).trim()
+    : "";
+
   const userAddressing = company
     ? `Company: ${company}${role ? ` · Role: ${role}` : ""}`
     : "Company: (extract from the JD below)";
+
+  const storiesBlock = storiesText
+    ? [
+        "APPLICANT STORIES (verbatim plaintext from their Stories doc — use ONE of these as the anchor story if any of them map to the role's core challenge):\n\n---\n",
+        storiesText,
+        "\n---\n\n",
+      ].join("")
+    : "";
 
   return streamClaudeResponse({
     system: prompts.coverLetter(),
@@ -54,11 +69,12 @@ export async function POST(req: NextRequest) {
           "MASTER RESUME (verbatim plaintext from Google Docs):\n\n---\n",
           resumeText,
           "\n---\n\n",
+          storiesBlock,
           userAddressing,
           "\n\nJOB DESCRIPTION:\n\n---\n",
           jd,
           "\n---\n\n",
-          "Write the cover letter now. Follow every rule in your instructions — 450-500 word body, one anchor story drawn from the resume, no em dashes, no 'I'm excited to apply', warm sign-off. Output ONLY the letter (Dear [Company] Hiring Team, … Warmly, [Name] etc.) — no preamble, no meta commentary, no requests for extra files. Extract the applicant's name and contact info from the resume header.",
+          "Write the cover letter now. Follow every rule in your instructions: 450-500 word body, ONE anchor story (draw from the Stories doc if provided, otherwise from the resume), no em dashes, no 'I'm excited to apply', warm sign-off. Output ONLY the letter (Dear [Company] Hiring Team, ... Warmly, [Name] etc.), no preamble, no meta commentary. Extract the applicant's name and contact info from the resume header.",
         ].join(""),
       },
     ],

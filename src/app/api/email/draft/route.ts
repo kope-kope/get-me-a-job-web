@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, hasGrantedScopes } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
-import { findMasterResume, readDocPlaintext } from "@/lib/google";
+import { findMasterResume, findStoriesDoc, readDocPlaintext } from "@/lib/google";
 import { prompts } from "@/lib/prompts";
 import { streamClaudeResponse } from "@/lib/stream";
 
@@ -43,6 +43,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "master resume is empty" }, { status: 400 });
   }
 
+  const stories = await findStoriesDoc(session.accessToken);
+  const storiesText = stories
+    ? (await readDocPlaintext(session.accessToken, stories.id)).trim()
+    : "";
+  const storiesBlock = storiesText
+    ? [
+        "APPLICANT STORIES (use for the value-first hook when a real story maps to the target company's problem):\n\n---\n",
+        storiesText,
+        "\n---\n\n",
+      ].join("")
+    : "";
+
   return streamClaudeResponse({
     system: prompts.networkOutreach(),
     messages: [
@@ -52,6 +64,7 @@ export async function POST(req: NextRequest) {
           "MASTER RESUME (verbatim plaintext from Google Docs):\n\n---\n",
           resumeText,
           "\n---\n\n",
+          storiesBlock,
           "JOB DESCRIPTION:\n\n---\n",
           jd,
           "\n---\n\n",

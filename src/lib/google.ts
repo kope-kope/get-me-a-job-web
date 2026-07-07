@@ -20,6 +20,7 @@ export function gmailClient(accessToken: string): gmail_v1.Gmail {
 
 const JOB_SEARCH_FOLDER_NAME = "Job Search";
 const MASTER_RESUME_NAME = "Master Resume";
+const STORIES_NAME = "Stories";
 
 export function extractDocId(input: string): string | null {
   const trimmed = input.trim();
@@ -209,6 +210,51 @@ export async function registerMasterResume(
 export async function findMasterResume(accessToken: string): Promise<{ id: string; url: string } | null> {
   const folder = await ensureJobSearchFolder(accessToken);
   return findFileByName(accessToken, MASTER_RESUME_NAME, folder.id);
+}
+
+/**
+ * Register a user's stories doc from a Google Doc URL. Same idempotent
+ * pattern as registerMasterResume — a prior "Stories" doc is deleted and
+ * replaced with a fresh copy of the source.
+ */
+export async function registerStoriesDoc(
+  accessToken: string,
+  sourceDocUrlOrId: string,
+): Promise<{
+  folderId: string;
+  folderUrl: string;
+  storiesDocId: string;
+  storiesDocUrl: string;
+  sourceDocId: string;
+}> {
+  const sourceId = extractDocId(sourceDocUrlOrId);
+  if (!sourceId) {
+    throw new Error("Could not extract a Google Doc ID from that URL.");
+  }
+  const folder = await ensureJobSearchFolder(accessToken);
+  const existing = await findFileByName(accessToken, STORIES_NAME, folder.id);
+  if (existing) {
+    const drive = driveClient(accessToken);
+    await drive.files.delete({ fileId: existing.id });
+  }
+  const copied = await copyDoc(accessToken, sourceId, STORIES_NAME, folder.id);
+  return {
+    folderId: folder.id,
+    folderUrl: folder.url,
+    storiesDocId: copied.id,
+    storiesDocUrl: copied.url,
+    sourceDocId: sourceId,
+  };
+}
+
+/**
+ * Find the user's stories doc in Drive by convention:
+ * "Job Search" > "Stories". Returns null if the user hasn't added stories
+ * yet — consumers should degrade gracefully.
+ */
+export async function findStoriesDoc(accessToken: string): Promise<{ id: string; url: string } | null> {
+  const folder = await ensureJobSearchFolder(accessToken);
+  return findFileByName(accessToken, STORIES_NAME, folder.id);
 }
 
 /**
