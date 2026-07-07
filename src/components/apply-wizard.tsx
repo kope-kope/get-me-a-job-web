@@ -18,9 +18,18 @@ type TailorPlan = {
 
 type TailorResult = {
   tailoredDocUrl: string;
+  subfolderId: string;
   subfolderUrl: string;
+  company: string;
+  role: string;
   appliedRewrites: number;
   skippedRewrites: number;
+};
+
+type SavedDoc = {
+  savedDocUrl: string;
+  title: string;
+  saveError?: string;
 };
 
 export function ApplyWizard() {
@@ -36,6 +45,8 @@ export function ApplyWizard() {
   const [result, setResult] = useState<TailorResult | null>(null);
   const [coverText, setCoverText] = useState("");
   const [emailText, setEmailText] = useState("");
+  const [coverSaved, setCoverSaved] = useState<SavedDoc | null>(null);
+  const [emailSaved, setEmailSaved] = useState<SavedDoc | null>(null);
   const [tab, setTab] = useState<"resume" | "cover" | "email">("resume");
   const [error, setError] = useState<string | null>(null);
 
@@ -47,13 +58,17 @@ export function ApplyWizard() {
     setResult(null);
     setCoverText("");
     setEmailText("");
+    setCoverSaved(null);
+    setEmailSaved(null);
     setState({ tailor: "running", cover: "idle", email: "idle" });
 
-    // Capture plan locally too — React state may not have flushed by the
-    // time the next streamSSE call runs, and we need company/role for the
-    // downstream endpoints to phrase things correctly. Typed as an object
-    // ref so flow analysis doesn't narrow to `never` inside the closure.
-    const captured: { plan: TailorPlan | null } = { plan: null };
+    // Capture plan+result locally too — React state may not have flushed by
+    // the time the next streamSSE call fires. Object ref keeps TS flow
+    // analysis from narrowing to `never` inside the closure.
+    const captured: { plan: TailorPlan | null; result: TailorResult | null } = {
+      plan: null,
+      result: null,
+    };
 
     try {
       await streamSSE("/api/tailor", { jd }, {
@@ -65,7 +80,9 @@ export function ApplyWizard() {
             captured.plan = p;
             setPlan(p);
           } else if (event === "done") {
-            setResult(data as TailorResult);
+            const r = data as TailorResult;
+            captured.result = r;
+            setResult(r);
           }
         },
       });
@@ -73,19 +90,40 @@ export function ApplyWizard() {
       setProgress("Writing your cover letter…");
       setTab("cover");
 
-      const company = captured.plan?.company;
-      const role = captured.plan?.role;
+      const company = captured.result?.company ?? captured.plan?.company;
+      const role = captured.result?.role ?? captured.plan?.role;
+      const subfolderId = captured.result?.subfolderId;
 
-      await streamSSE("/api/cover-letter", { jd, company, role }, {
-        onDelta: (text) => setCoverText((prev) => prev + text),
-      });
+      await streamSSE(
+        "/api/cover-letter",
+        { jd, company, role, subfolderId },
+        {
+          onDelta: (text) => setCoverText((prev) => prev + text),
+          onEvent: (event, data) => {
+            if (event === "done") {
+              const d = data as SavedDoc;
+              if (d.savedDocUrl) setCoverSaved(d);
+            }
+          },
+        },
+      );
       setState((s) => ({ ...s, cover: "done", email: "running" }));
       setProgress("Drafting the cold email…");
       setTab("email");
 
-      await streamSSE("/api/email/draft", { jd, company, role }, {
-        onDelta: (text) => setEmailText((prev) => prev + text),
-      });
+      await streamSSE(
+        "/api/email/draft",
+        { jd, company, role, subfolderId },
+        {
+          onDelta: (text) => setEmailText((prev) => prev + text),
+          onEvent: (event, data) => {
+            if (event === "done") {
+              const d = data as SavedDoc;
+              if (d.savedDocUrl) setEmailSaved(d);
+            }
+          },
+        },
+      );
       setState((s) => ({ ...s, email: "done" }));
       setProgress("");
     } catch (err) {
@@ -153,17 +191,42 @@ export function ApplyWizard() {
             <ResumeTab plan={plan} result={result} state={state.tailor} />
           )}
           {tab === "cover" && (
-            <pre className="max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
-              {coverText || (state.cover === "idle" ? "Queued — tailored resume runs first." : "…")}
-            </pre>
+            <div className="space-y-3">
+              {coverSaved && <SavedBanner saved={coverSaved} kind="cover letter" />}
+              <pre className="max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
+                {coverText || (state.cover === "idle" ? "Queued — tailored resume runs first." : "…")}
+              </pre>
+            </div>
           )}
           {tab === "email" && (
-            <pre className="max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
-              {emailText || (state.email === "idle" ? "Queued — cover letter runs first." : "…")}
-            </pre>
+            <div className="space-y-3">
+              {emailSaved && <SavedBanner saved={emailSaved} kind="cold email" />}
+              <pre className="max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
+                {emailText || (state.email === "idle" ? "Queued — cover letter runs first." : "…")}
+              </pre>
+            </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SavedBanner({ saved, kind }: { saved: SavedDoc; kind: string }) {
+  if (saved.saveError) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        Streamed above, but couldn&apos;t save the {kind} to Drive: {saved.saveError}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+      Saved as{" "}
+      <a href={saved.savedDocUrl} target="_blank" rel="noreferrer" className="font-medium underline">
+        {saved.title}
+      </a>{" "}
+      in the same Drive folder as the tailored resume.
     </div>
   );
 }

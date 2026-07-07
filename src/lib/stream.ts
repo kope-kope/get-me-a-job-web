@@ -7,6 +7,14 @@ export type StreamOptions = {
   messages: MessageParam[];
   maxTokens?: number;
   model?: string;
+  /**
+   * Runs after Claude's stream finishes but before the "done" event is sent.
+   * Whatever it returns gets merged into the done payload — use it to save
+   * the completed output to Drive / Gmail / a database and forward the URL.
+   * Throws are caught and reported via a `saveError` field on the done
+   * event so the client still gets a signal that streaming completed.
+   */
+  onComplete?: (fullText: string) => Promise<Record<string, unknown> | void>;
 };
 
 /**
@@ -25,6 +33,7 @@ export function streamClaudeResponse(opts: StreamOptions): Response {
       };
 
       const humanizer = new StreamHumanizer();
+      let accumulated = "";
 
       try {
         const stream = anthropic().messages.stream({
@@ -40,15 +49,33 @@ export function streamClaudeResponse(opts: StreamOptions): Response {
             event.delta.type === "text_delta"
           ) {
             const cleaned = humanizer.push(event.delta.text);
-            if (cleaned) send("delta", { text: cleaned });
+            if (cleaned) {
+              accumulated += cleaned;
+              send("delta", { text: cleaned });
+            }
           }
         }
 
         const tail = humanizer.flush();
-        if (tail) send("delta", { text: tail });
+        if (tail) {
+          accumulated += tail;
+          send("delta", { text: tail });
+        }
 
         const final = await stream.finalMessage();
-        send("done", { usage: final.usage, stopReason: final.stop_reason });
+        let extra: Record<string, unknown> = {
+          usage: final.usage,
+          stopReason: final.stop_reason,
+        };
+        if (opts.onComplete) {
+          try {
+            const returned = await opts.onComplete(accumulated);
+            if (returned) extra = { ...extra, ...returned };
+          } catch (err) {
+            extra.saveError = err instanceof Error ? err.message : "save failed";
+          }
+        }
+        send("done", extra);
       } catch (err) {
         send("error", {
           message: err instanceof Error ? err.message : "stream failed",

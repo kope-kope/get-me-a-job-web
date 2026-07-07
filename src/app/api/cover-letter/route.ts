@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, guardGoogleSession, sessionGuardResponse } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
-import { findMasterResume, findStoriesDoc, readDocPlaintext } from "@/lib/google";
+import {
+  createTextDoc,
+  findMasterResume,
+  findStoriesDoc,
+  readDocPlaintext,
+} from "@/lib/google";
 import { prompts } from "@/lib/prompts";
 import { streamClaudeResponse } from "@/lib/stream";
 
@@ -14,10 +19,11 @@ export async function POST(req: NextRequest) {
   if (issue) return sessionGuardResponse(issue);
   const accessToken = session!.accessToken!;
 
-  const { jd, company, role } = (await req.json()) as {
+  const { jd, company, role, subfolderId } = (await req.json()) as {
     jd?: string;
     company?: string;
     role?: string;
+    subfolderId?: string;
   };
   if (!jd?.trim()) return NextResponse.json({ error: "missing jd" }, { status: 400 });
 
@@ -36,8 +42,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "master resume is empty" }, { status: 400 });
   }
 
-  // Stories are optional. If present, they let Claude write a much more
-  // personal letter grounded in real anchor stories.
   const stories = await findStoriesDoc(accessToken);
   const storiesText = stories
     ? (await readDocPlaintext(accessToken, stories.id)).trim()
@@ -54,6 +58,8 @@ export async function POST(req: NextRequest) {
         "\n---\n\n",
       ].join("")
     : "";
+
+  const docTitle = `${company ?? "Application"} - Cover Letter`.slice(0, 120);
 
   return streamClaudeResponse({
     system: prompts.coverLetter(),
@@ -74,5 +80,11 @@ export async function POST(req: NextRequest) {
       },
     ],
     maxTokens: 2048,
+    onComplete: async (fullText) => {
+      const trimmed = fullText.trim();
+      if (!trimmed) return {};
+      const doc = await createTextDoc(accessToken, docTitle, trimmed, subfolderId);
+      return { savedDocId: doc.id, savedDocUrl: doc.url, title: docTitle };
+    },
   });
 }

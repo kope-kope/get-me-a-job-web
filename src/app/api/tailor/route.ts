@@ -183,7 +183,10 @@ export async function POST(req: NextRequest) {
         send("done", {
           tailoredDocUrl: tailored.url,
           tailoredDocId: tailored.id,
+          subfolderId: subfolder.id,
           subfolderUrl: subfolder.url,
+          company: plan.company,
+          role: plan.role,
           occurrencesChanged,
           appliedRewrites: validPairs.length,
           skippedRewrites: skipped,

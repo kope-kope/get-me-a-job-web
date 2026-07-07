@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, guardGoogleSession, sessionGuardResponse } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
-import { findMasterResume, findStoriesDoc, readDocPlaintext } from "@/lib/google";
+import {
+  createTextDoc,
+  findMasterResume,
+  findStoriesDoc,
+  readDocPlaintext,
+} from "@/lib/google";
 import { prompts } from "@/lib/prompts";
 import { streamClaudeResponse } from "@/lib/stream";
 
@@ -14,12 +19,13 @@ export async function POST(req: NextRequest) {
   if (issue) return sessionGuardResponse(issue);
   const accessToken = session!.accessToken!;
 
-  const { jd, company, role, contactName, contactRole } = (await req.json()) as {
+  const { jd, company, role, contactName, contactRole, subfolderId } = (await req.json()) as {
     jd?: string;
     company?: string;
     role?: string;
     contactName?: string;
     contactRole?: string;
+    subfolderId?: string;
   };
   if (!jd?.trim()) return NextResponse.json({ error: "missing jd" }, { status: 400 });
 
@@ -75,5 +81,12 @@ export async function POST(req: NextRequest) {
       },
     ],
     maxTokens: 1024,
+    onComplete: async (fullText) => {
+      const trimmed = fullText.trim();
+      if (!trimmed) return {};
+      const title = `${company ?? "Application"} - Cold Email`.slice(0, 120);
+      const doc = await createTextDoc(accessToken, title, trimmed, subfolderId);
+      return { savedDocId: doc.id, savedDocUrl: doc.url, title };
+    },
   });
 }
