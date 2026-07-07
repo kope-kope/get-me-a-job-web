@@ -73,6 +73,9 @@ export async function POST(req: NextRequest) {
           `Role of interest: ${role ?? "(the role in the JD)"}\n`,
           `Contact: ${contactName ?? "someone on the team"}${contactRole ? ` (${contactRole})` : ""}\n\n`,
           "Draft a cold outreach email using the value-first product-insight approach from your instructions. ",
+          contactName
+            ? `Open with "Hi ${contactName.split(" ")[0]},". Use their first name only. If their role is provided, weave in ONE specific reason you're reaching out to THEM (their work area, a recent post, or the team they run) rather than a generic hello. `
+            : 'Open with "Hi there," — no specific contact was provided. ',
           "Output exactly:\n\nSubject: <one-line subject that creates curiosity, doesn't describe credentials>\n\n<body>\n\n",
           "Rules: under 200 words, no em dashes, use contractions, no 'I hope this message finds you well', ",
           "no 'I came across your profile'. Draw the applicant's name from the resume header. ",
