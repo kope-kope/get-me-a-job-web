@@ -161,3 +161,109 @@ export async function findContactsByCompany(
     totalAtCompany: body.data?.meta?.results ?? emails.length,
   };
 }
+
+export type EmailFinderInput = {
+  firstName: string;
+  lastName: string;
+  /** Either company OR domain must be provided. Hunter accepts both. */
+  company?: string;
+  domain?: string;
+};
+
+export type EmailFinderHit = {
+  email: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  position: string;
+  company: string;
+  domain: string;
+  score: number;
+  verificationStatus: string;
+  acceptAll?: boolean;
+  linkedin?: string;
+  twitter?: string;
+};
+
+/**
+ * Hunter Email Finder — takes a specific name + company, returns THAT
+ * person's email. Used in Phase 2 of the outreach pipeline after the
+ * research step (Claude web_search) has identified target names.
+ *
+ * Returns null when Hunter has no answer for the pair. Throws with
+ * code=HUNTER_QUOTA when the monthly free tier is exhausted so the
+ * caller can degrade gracefully.
+ */
+export async function findEmailByName(input: EmailFinderInput): Promise<EmailFinderHit | null> {
+  const apiKey = process.env.HUNTER_API_KEY;
+  if (!apiKey) {
+    throw new Error("HUNTER_API_KEY is not configured on the server.");
+  }
+  if (!input.company && !input.domain) {
+    throw new Error("findEmailByName requires either company or domain.");
+  }
+
+  const url = new URL(`${HUNTER_API}/email-finder`);
+  url.searchParams.set("first_name", input.firstName);
+  url.searchParams.set("last_name", input.lastName);
+  if (input.domain) url.searchParams.set("domain", input.domain);
+  else if (input.company) url.searchParams.set("company", input.company);
+  url.searchParams.set("api_key", apiKey);
+
+  const res = await fetch(url.toString(), { method: "GET" });
+  const body = (await res.json()) as {
+    data?: {
+      email?: string;
+      first_name?: string;
+      last_name?: string;
+      position?: string | null;
+      company?: string | null;
+      domain?: string | null;
+      score?: number;
+      accept_all?: boolean;
+      linkedin_url?: string | null;
+      twitter?: string | null;
+      verification?: { status?: string };
+    };
+    errors?: Array<{ id?: string; code?: number; details?: string }>;
+  };
+
+  if (!res.ok) {
+    const errCode = body.errors?.[0]?.id ?? "";
+    const detail = body.errors?.[0]?.details || `Hunter returned HTTP ${res.status}`;
+    if (
+      res.status === 429 ||
+      errCode.includes("usage_exceeded") ||
+      errCode.includes("plan_limit_exceeded") ||
+      /quota|limit|exceed/i.test(detail)
+    ) {
+      const err = new Error(
+        "Hunter's monthly free-tier quota is exhausted. Some emails couldn't be looked up; the resume and cover letter still saved. Reset happens on the 1st of next month, or you can upgrade the Hunter plan.",
+      );
+      (err as Error & { code?: string }).code = "HUNTER_QUOTA";
+      throw err;
+    }
+    throw new Error(detail);
+  }
+
+  const d = body.data;
+  if (!d?.email) return null;
+
+  return {
+    email: d.email,
+    firstName: d.first_name ?? input.firstName,
+    lastName: d.last_name ?? input.lastName,
+    fullName: [d.first_name ?? input.firstName, d.last_name ?? input.lastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim(),
+    position: d.position ?? "",
+    company: d.company ?? input.company ?? "",
+    domain: d.domain ?? input.domain ?? "",
+    score: d.score ?? 0,
+    verificationStatus: d.verification?.status ?? "unknown",
+    acceptAll: d.accept_all,
+    linkedin: d.linkedin_url ?? undefined,
+    twitter: d.twitter ?? undefined,
+  };
+}

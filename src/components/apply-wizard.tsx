@@ -38,18 +38,40 @@ type Contact = {
   firstName: string;
   lastName: string;
   position: string;
-  seniority: string;
-  department: string;
-  confidence: number;
-  linkedin?: string;
+  reasoning?: string;
+  linkedinUrl?: string;
+  verificationStatus?: string;
+  score?: number;
 };
 
-type ContactResult = {
-  organization: string | null;
-  domain: string | null;
-  contacts: Contact[];
-  totalReturned: number;
-  totalAtCompany: number;
+type ResearchedContact = {
+  firstName: string;
+  lastName: string;
+  position: string;
+  linkedinUrl?: string;
+  reasoning: string;
+  sourceUrl?: string;
+};
+
+type ResearchResult = {
+  company: string;
+  domain?: string;
+  contacts: ResearchedContact[];
+  notes?: string;
+};
+
+type LookupResult = {
+  results: Array<
+    ResearchedContact & {
+      found: boolean;
+      email?: string;
+      score?: number;
+      verificationStatus?: string;
+      error?: string;
+    }
+  >;
+  quotaHit: boolean;
+  foundCount: number;
 };
 
 type EmailStream = {
@@ -70,7 +92,8 @@ export function ApplyWizard() {
   const [state, setState] = useState<Record<string, StepState>>({
     tailor: "idle",
     cover: "idle",
-    contacts: "idle",
+    research: "idle",
+    lookup: "idle",
     emails: "idle",
   });
   const [progress, setProgress] = useState<string>("");
@@ -79,6 +102,7 @@ export function ApplyWizard() {
   const [coverText, setCoverText] = useState("");
   const [coverSaved, setCoverSaved] = useState<SavedDoc | null>(null);
   const [contactSkipped, setContactSkipped] = useState<string | null>(null);
+  const [researchNotes, setResearchNotes] = useState<string | null>(null);
   const [emails, setEmails] = useState<EmailStream[]>([]);
   const [tab, setTab] = useState<"resume" | "cover" | "email">("resume");
   const [error, setError] = useState<string | null>(null);
@@ -102,8 +126,9 @@ export function ApplyWizard() {
     setCoverText("");
     setCoverSaved(null);
     setContactSkipped(null);
+    setResearchNotes(null);
     setEmails([]);
-    setState({ tailor: "running", cover: "idle", contacts: "idle", emails: "idle" });
+    setState({ tailor: "running", cover: "idle", research: "idle", lookup: "idle", emails: "idle" });
 
     const captured: {
       plan: TailorPlan | null;
@@ -149,40 +174,100 @@ export function ApplyWizard() {
         },
       );
 
-      // Contact search
-      setState((s) => ({ ...s, cover: "done", contacts: "running" }));
-      setProgress(`Finding ${OUTREACH_COUNT} contacts at ${company ?? "the company"}…`);
-      if (company) {
+      // Phase 1: research — Claude + web_search identifies real named targets.
+      setState((s) => ({ ...s, cover: "done", research: "running" }));
+      setProgress(`Researching hiring managers at ${company ?? "the company"}…`);
+      let researched: ResearchedContact[] = [];
+      let researchDomain: string | undefined;
+      if (company && role) {
         try {
-          const res = await fetch("/api/contacts/find", {
+          const res = await fetch("/api/contacts/research", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ company, role, limit: OUTREACH_COUNT }),
+            body: JSON.stringify({ jd, company, role }),
           });
-          const data = (await res.json()) as ContactResult & {
-            error?: string;
-            code?: string;
-          };
+          const data = (await res.json()) as ResearchResult & { error?: string };
           if (!res.ok) {
-            const msg =
-              data.code === "HUNTER_QUOTA" || data.code === "HUNTER_MISSING"
-                ? data.error
-                : (data.error ?? `Hunter returned HTTP ${res.status}`);
-            setContactSkipped(msg ?? "Contact search failed.");
+            setContactSkipped(data.error ?? `Research returned HTTP ${res.status}`);
           } else if (data.contacts.length === 0) {
             setContactSkipped(
-              `Hunter didn't find any contacts at ${company}. Skipping outreach — everything else still got saved.`,
+              data.notes ??
+                `Couldn't identify named targets at ${company}. Rest of the application still saved.`,
             );
           } else {
-            captured.contacts = data.contacts.slice(0, OUTREACH_COUNT);
+            researched = data.contacts.slice(0, OUTREACH_COUNT);
+            researchDomain = data.domain;
+            if (data.notes) setResearchNotes(data.notes);
           }
         } catch (err) {
-          setContactSkipped(err instanceof Error ? err.message : "Contact search failed.");
+          setContactSkipped(err instanceof Error ? err.message : "Research failed.");
         }
       } else {
-        setContactSkipped("Company name wasn't extracted from the JD — skipping outreach.");
+        setContactSkipped("Company or role wasn't extracted from the JD — skipping outreach.");
       }
-      setState((s) => ({ ...s, contacts: "done" }));
+      setState((s) => ({ ...s, research: "done" }));
+
+      if (researched.length === 0) {
+        setState((s) => ({ ...s, lookup: "done", emails: "done" }));
+        setProgress("");
+        setTab("email");
+        return;
+      }
+
+      // Phase 2: Hunter Email Finder for each researched name.
+      setState((s) => ({ ...s, lookup: "running" }));
+      setProgress(`Looking up ${researched.length} email${researched.length === 1 ? "" : "s"}…`);
+      try {
+        const res = await fetch("/api/contacts/lookup", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            targets: researched.map((r) => ({
+              firstName: r.firstName,
+              lastName: r.lastName,
+              company,
+              domain: researchDomain,
+              position: r.position,
+              linkedinUrl: r.linkedinUrl,
+              reasoning: r.reasoning,
+            })),
+          }),
+        });
+        const data = (await res.json()) as LookupResult & { error?: string; code?: string };
+        if (!res.ok) {
+          setContactSkipped(
+            data.error ?? `Hunter lookup returned HTTP ${res.status}.`,
+          );
+        } else {
+          for (const r of data.results) {
+            if (r.found && r.email) {
+              captured.contacts.push({
+                email: r.email,
+                firstName: r.firstName,
+                lastName: r.lastName,
+                fullName: `${r.firstName} ${r.lastName}`.trim(),
+                position: r.position,
+                reasoning: r.reasoning,
+                linkedinUrl: r.linkedinUrl,
+                verificationStatus: r.verificationStatus,
+                score: r.score,
+              });
+            }
+          }
+          if (data.quotaHit) {
+            setContactSkipped(
+              `Hunter quota ran out partway through lookup. ${data.foundCount} of ${data.results.length} emails found; the rest can be reached manually.`,
+            );
+          } else if (data.foundCount === 0) {
+            setContactSkipped(
+              `Found ${researched.length} target${researched.length === 1 ? "" : "s"} via research, but Hunter couldn't verify any emails. Names still saved in the research notes.`,
+            );
+          }
+        }
+      } catch (err) {
+        setContactSkipped(err instanceof Error ? err.message : "Email lookup failed.");
+      }
+      setState((s) => ({ ...s, lookup: "done" }));
 
       if (captured.contacts.length === 0) {
         // Nothing to draft. Leave emails empty and mark as done.
@@ -322,7 +407,8 @@ export function ApplyWizard() {
       <div className="rounded-xl border border-[var(--color-border)] p-4">
         <ProgressRow label="Tailored resume" state={state.tailor} detail={state.tailor === "running" ? progress : undefined} />
         <ProgressRow label="Cover letter" state={state.cover} detail={state.cover === "running" ? progress : undefined} />
-        <ProgressRow label={`Find ${OUTREACH_COUNT} contacts`} state={state.contacts} detail={state.contacts === "running" ? progress : undefined} />
+        <ProgressRow label={`Research ${OUTREACH_COUNT} contacts`} state={state.research} detail={state.research === "running" ? progress : undefined} />
+        <ProgressRow label="Look up emails" state={state.lookup} detail={state.lookup === "running" ? progress : undefined} />
         <ProgressRow label={`Draft ${OUTREACH_COUNT} cold emails`} state={state.emails} detail={state.emails === "running" ? progress : undefined} />
       </div>
 
@@ -433,15 +519,28 @@ function EmailCard({
           <div className="mt-0.5 font-medium">{email.contact.fullName}</div>
           <div className="text-xs text-[var(--color-muted)]">
             {email.contact.position || "role unknown"} · {email.contact.email}
-            {email.contact.linkedin && (
+            {email.contact.linkedinUrl && (
               <>
                 {" · "}
-                <a href={email.contact.linkedin} target="_blank" rel="noreferrer" className="underline">
+                <a href={email.contact.linkedinUrl} target="_blank" rel="noreferrer" className="underline">
                   LinkedIn
                 </a>
               </>
             )}
+            {email.contact.verificationStatus && (
+              <>
+                {" · verified "}
+                <span className={email.contact.verificationStatus === "valid" ? "text-emerald-600" : "text-[var(--color-warning)]"}>
+                  {email.contact.verificationStatus}
+                </span>
+              </>
+            )}
           </div>
+          {email.contact.reasoning && (
+            <div className="mt-2 text-xs italic text-[var(--color-muted)]">
+              {email.contact.reasoning}
+            </div>
+          )}
         </div>
         <StatePill state={email.state} />
       </div>
