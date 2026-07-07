@@ -31,9 +31,11 @@ export async function POST(req: NextRequest) {
     const result = await findContactsByCompany({ company, role, limit });
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "contact search failed" },
-      { status: 500 },
-    );
+    const message = err instanceof Error ? err.message : "contact search failed";
+    const code = (err as Error & { code?: string }).code;
+    if (code === "HUNTER_QUOTA") {
+      return NextResponse.json({ error: message, code }, { status: 503 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

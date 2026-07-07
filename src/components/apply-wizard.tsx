@@ -52,6 +52,18 @@ type ContactResult = {
   totalAtCompany: number;
 };
 
+type EmailStream = {
+  contact: Contact;
+  text: string;
+  saved: SavedDoc | null;
+  state: StepState;
+  sending: "draft" | "send" | null;
+  sendResult: { status: string; url?: string } | null;
+  error: string | null;
+};
+
+const OUTREACH_COUNT = 3;
+
 export function ApplyWizard() {
   const [jd, setJd] = useState("");
   const [started, setStarted] = useState(false);
@@ -59,22 +71,27 @@ export function ApplyWizard() {
     tailor: "idle",
     cover: "idle",
     contacts: "idle",
-    email: "idle",
+    emails: "idle",
   });
   const [progress, setProgress] = useState<string>("");
   const [plan, setPlan] = useState<TailorPlan | null>(null);
   const [result, setResult] = useState<TailorResult | null>(null);
   const [coverText, setCoverText] = useState("");
-  const [emailText, setEmailText] = useState("");
   const [coverSaved, setCoverSaved] = useState<SavedDoc | null>(null);
-  const [emailSaved, setEmailSaved] = useState<SavedDoc | null>(null);
-  const [contacts, setContacts] = useState<ContactResult | null>(null);
   const [contactSkipped, setContactSkipped] = useState<string | null>(null);
-  const [pickedContact, setPickedContact] = useState<Contact | null>(null);
+  const [emails, setEmails] = useState<EmailStream[]>([]);
   const [tab, setTab] = useState<"resume" | "cover" | "email">("resume");
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState<"draft" | "send" | null>(null);
-  const [sendResult, setSendResult] = useState<{ status: string; url?: string } | null>(null);
+
+  function updateEmail(index: number, patch: Partial<EmailStream>) {
+    setEmails((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)));
+  }
+
+  function appendEmailText(index: number, text: string) {
+    setEmails((prev) =>
+      prev.map((e, i) => (i === index ? { ...e, text: e.text + text } : e)),
+    );
+  }
 
   async function run() {
     if (!jd.trim()) return;
@@ -83,20 +100,16 @@ export function ApplyWizard() {
     setPlan(null);
     setResult(null);
     setCoverText("");
-    setEmailText("");
     setCoverSaved(null);
-    setEmailSaved(null);
-    setContacts(null);
     setContactSkipped(null);
-    setPickedContact(null);
-    setSendResult(null);
-    setState({ tailor: "running", cover: "idle", contacts: "idle", email: "idle" });
+    setEmails([]);
+    setState({ tailor: "running", cover: "idle", contacts: "idle", emails: "idle" });
 
-    const captured: { plan: TailorPlan | null; result: TailorResult | null; contact: Contact | null } = {
-      plan: null,
-      result: null,
-      contact: null,
-    };
+    const captured: {
+      plan: TailorPlan | null;
+      result: TailorResult | null;
+      contacts: Contact[];
+    } = { plan: null, result: null, contacts: [] };
 
     try {
       await streamSSE("/api/tailor", { jd }, {
@@ -136,58 +149,99 @@ export function ApplyWizard() {
         },
       );
 
-      // Contacts — best-effort. If Hunter isn't configured or returns nothing,
-      // we still draft an email using a generic salutation.
+      // Contact search
       setState((s) => ({ ...s, cover: "done", contacts: "running" }));
-      setProgress(`Looking up contacts at ${company ?? "the company"}…`);
+      setProgress(`Finding ${OUTREACH_COUNT} contacts at ${company ?? "the company"}…`);
       if (company) {
         try {
           const res = await fetch("/api/contacts/find", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ company, role, limit: 5 }),
+            body: JSON.stringify({ company, role, limit: OUTREACH_COUNT }),
           });
-          const data = (await res.json()) as ContactResult & { error?: string; code?: string };
+          const data = (await res.json()) as ContactResult & {
+            error?: string;
+            code?: string;
+          };
           if (!res.ok) {
-            setContactSkipped(data.error ?? "Contact search failed. Drafting with a generic salutation.");
+            const msg =
+              data.code === "HUNTER_QUOTA" || data.code === "HUNTER_MISSING"
+                ? data.error
+                : (data.error ?? `Hunter returned HTTP ${res.status}`);
+            setContactSkipped(msg ?? "Contact search failed.");
           } else if (data.contacts.length === 0) {
-            setContactSkipped(`No contacts found for ${company}. Drafting with a generic salutation.`);
+            setContactSkipped(
+              `Hunter didn't find any contacts at ${company}. Skipping outreach — everything else still got saved.`,
+            );
           } else {
-            setContacts(data);
-            captured.contact = data.contacts[0];
-            setPickedContact(data.contacts[0]);
+            captured.contacts = data.contacts.slice(0, OUTREACH_COUNT);
           }
         } catch (err) {
           setContactSkipped(err instanceof Error ? err.message : "Contact search failed.");
         }
       } else {
-        setContactSkipped("Company name wasn't extracted from the JD. Skipping contact search.");
+        setContactSkipped("Company name wasn't extracted from the JD — skipping outreach.");
       }
-      setState((s) => ({ ...s, contacts: "done", email: "running" }));
-      setProgress("Drafting the cold email…");
+      setState((s) => ({ ...s, contacts: "done" }));
+
+      if (captured.contacts.length === 0) {
+        // Nothing to draft. Leave emails empty and mark as done.
+        setState((s) => ({ ...s, emails: "done" }));
+        setProgress("");
+        setTab("email");
+        return;
+      }
+
+      // Seed one EmailStream per contact and switch to the email tab so
+      // the user watches the drafts fill in.
+      setEmails(
+        captured.contacts.map((c) => ({
+          contact: c,
+          text: "",
+          saved: null,
+          state: "idle",
+          sending: null,
+          sendResult: null,
+          error: null,
+        })),
+      );
+      setState((s) => ({ ...s, emails: "running" }));
       setTab("email");
 
-      await streamSSE(
-        "/api/email/draft",
-        {
-          jd,
-          company,
-          role,
-          subfolderId,
-          contactName: captured.contact?.fullName,
-          contactRole: captured.contact?.position,
-        },
-        {
-          onDelta: (text) => setEmailText((prev) => prev + text),
-          onEvent: (event, data) => {
-            if (event === "done") {
-              const d = data as SavedDoc;
-              if (d.savedDocUrl) setEmailSaved(d);
-            }
-          },
-        },
-      );
-      setState((s) => ({ ...s, email: "done" }));
+      for (let i = 0; i < captured.contacts.length; i++) {
+        const contact = captured.contacts[i];
+        setProgress(`Drafting email ${i + 1} of ${captured.contacts.length} — to ${contact.fullName}…`);
+        updateEmail(i, { state: "running" });
+        try {
+          await streamSSE(
+            "/api/email/draft",
+            {
+              jd,
+              company,
+              role,
+              subfolderId,
+              contactName: contact.fullName,
+              contactRole: contact.position,
+            },
+            {
+              onDelta: (text) => appendEmailText(i, text),
+              onEvent: (event, data) => {
+                if (event === "done") {
+                  const d = data as SavedDoc;
+                  if (d.savedDocUrl) updateEmail(i, { saved: d });
+                }
+              },
+            },
+          );
+          updateEmail(i, { state: "done" });
+        } catch (err) {
+          updateEmail(i, {
+            state: "error",
+            error: err instanceof Error ? err.message : "email draft failed",
+          });
+        }
+      }
+      setState((s) => ({ ...s, emails: "done" }));
       setProgress("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "generation failed");
@@ -199,22 +253,24 @@ export function ApplyWizard() {
     }
   }
 
-  async function sendEmail(mode: "draft" | "send") {
-    if (!pickedContact) return;
-    const parsed = parseEmail(emailText);
+  async function sendEmail(index: number, mode: "draft" | "send") {
+    const email = emails[index];
+    if (!email) return;
+    const parsed = parseEmail(email.text);
     if (!parsed) {
-      setError("Couldn't parse Subject/body from the streamed email.");
+      updateEmail(index, {
+        error: "Couldn't parse Subject/body from the streamed email. Edit the doc and send from Gmail directly.",
+      });
       return;
     }
-    setSending(mode);
-    setSendResult(null);
+    updateEmail(index, { sending: mode, sendResult: null, error: null });
     try {
       const res = await fetch("/api/email/send", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           mode,
-          to: pickedContact.email,
+          to: email.contact.email,
           subject: parsed.subject,
           body: parsed.body,
         }),
@@ -222,17 +278,19 @@ export function ApplyWizard() {
       const data = (await res.json()) as {
         status?: string;
         url?: string;
-        draftId?: string;
-        messageId?: string;
         error?: string;
         code?: string;
       };
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setSendResult({ status: data.status ?? mode, url: data.url });
+      updateEmail(index, {
+        sending: null,
+        sendResult: { status: data.status ?? mode, url: data.url },
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "send failed");
-    } finally {
-      setSending(null);
+      updateEmail(index, {
+        sending: null,
+        error: err instanceof Error ? err.message : "send failed",
+      });
     }
   }
 
@@ -264,8 +322,8 @@ export function ApplyWizard() {
       <div className="rounded-xl border border-[var(--color-border)] p-4">
         <ProgressRow label="Tailored resume" state={state.tailor} detail={state.tailor === "running" ? progress : undefined} />
         <ProgressRow label="Cover letter" state={state.cover} detail={state.cover === "running" ? progress : undefined} />
-        <ProgressRow label="Find contact" state={state.contacts} detail={state.contacts === "running" ? progress : undefined} />
-        <ProgressRow label="Cold email draft" state={state.email} detail={state.email === "running" ? progress : undefined} />
+        <ProgressRow label={`Find ${OUTREACH_COUNT} contacts`} state={state.contacts} detail={state.contacts === "running" ? progress : undefined} />
+        <ProgressRow label={`Draft ${OUTREACH_COUNT} cold emails`} state={state.emails} detail={state.emails === "running" ? progress : undefined} />
       </div>
 
       {error && (
@@ -283,7 +341,7 @@ export function ApplyWizard() {
             Cover letter
           </TabBtn>
           <TabBtn active={tab === "email"} onClick={() => setTab("email")}>
-            Cold email
+            Cold outreach{emails.length > 0 ? ` (${emails.length})` : ""}
           </TabBtn>
         </div>
 
@@ -300,32 +358,26 @@ export function ApplyWizard() {
             </div>
           )}
           {tab === "email" && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {contactSkipped && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                   {contactSkipped}
                 </div>
               )}
-              {contacts && pickedContact && (
-                <ContactPicker
-                  contacts={contacts}
-                  picked={pickedContact}
-                  onPick={setPickedContact}
-                />
+              {emails.length === 0 && !contactSkipped && (
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-6 text-center text-sm text-[var(--color-muted)]">
+                  {state.emails === "idle" ? "Queued — tailored resume and cover letter run first." : "Waiting for contact search…"}
+                </div>
               )}
-              {emailSaved && <SavedBanner saved={emailSaved} kind="cold email" />}
-              <pre className="max-h-[520px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-4 text-sm whitespace-pre-wrap font-sans">
-                {emailText || (state.email === "idle" ? "Queued — cover letter runs first." : "…")}
-              </pre>
-              {state.email === "done" && pickedContact && (
-                <SendPanel
-                  contact={pickedContact}
-                  sending={sending}
-                  sendResult={sendResult}
-                  onDraft={() => sendEmail("draft")}
-                  onSend={() => sendEmail("send")}
+              {emails.map((e, i) => (
+                <EmailCard
+                  key={e.contact.email}
+                  index={i}
+                  email={e}
+                  onDraft={() => sendEmail(i, "draft")}
+                  onSend={() => sendEmail(i, "send")}
                 />
-              )}
+              ))}
             </div>
           )}
         </div>
@@ -359,121 +411,113 @@ function SavedBanner({ saved, kind }: { saved: SavedDoc; kind: string }) {
   );
 }
 
-function ContactPicker({
-  contacts,
-  picked,
-  onPick,
+function EmailCard({
+  index,
+  email,
+  onDraft,
+  onSend,
 }: {
-  contacts: ContactResult;
-  picked: Contact;
-  onPick: (c: Contact) => void;
+  index: number;
+  email: EmailStream;
+  onDraft: () => void;
+  onSend: () => void;
 }) {
-  const others = contacts.contacts.filter((c) => c.email !== picked.email);
+  const isSent = email.sendResult?.status === "sent";
+  const isDrafted = email.sendResult?.status === "drafted";
+
   return (
-    <div className="rounded-lg border border-[var(--color-border)] p-3 text-sm">
+    <div className="rounded-xl border border-[var(--color-border)] p-4">
       <div className="flex items-baseline justify-between gap-2">
         <div>
-          <div className="font-medium">
-            Drafting to {picked.fullName}
-          </div>
+          <div className="text-xs text-[var(--color-muted)]">Recipient {index + 1}</div>
+          <div className="mt-0.5 font-medium">{email.contact.fullName}</div>
           <div className="text-xs text-[var(--color-muted)]">
-            {picked.position || "role unknown"} · {picked.email}
-            {picked.linkedin && (
+            {email.contact.position || "role unknown"} · {email.contact.email}
+            {email.contact.linkedin && (
               <>
                 {" · "}
-                <a href={picked.linkedin} target="_blank" rel="noreferrer" className="underline">
+                <a href={email.contact.linkedin} target="_blank" rel="noreferrer" className="underline">
                   LinkedIn
                 </a>
               </>
             )}
           </div>
         </div>
-        <div className="text-xs text-[var(--color-muted)]">
-          {contacts.totalAtCompany} contacts at {contacts.organization ?? contacts.domain ?? "the company"}
-        </div>
+        <StatePill state={email.state} />
       </div>
-      {others.length > 0 && (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs text-[var(--color-muted)]">
-            Pick a different contact ({others.length} others)
-          </summary>
-          <ul className="mt-2 space-y-1">
-            {others.map((c) => (
-              <li key={c.email}>
-                <button
-                  onClick={() => onPick(c)}
-                  className="w-full rounded-md border border-[var(--color-border)] px-2 py-1.5 text-left text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                >
-                  <span className="font-medium">{c.fullName}</span>{" "}
-                  <span className="text-[var(--color-muted)]">
-                    · {c.position || "role unknown"} · {c.email}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </details>
+
+      {email.saved && (
+        <div className="mt-3">
+          <SavedBanner saved={email.saved} kind="cold email" />
+        </div>
+      )}
+
+      <pre className="mt-3 max-h-[360px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-3 text-sm whitespace-pre-wrap font-sans">
+        {email.text || (email.state === "idle" ? "Queued." : "…")}
+      </pre>
+
+      {email.error && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+          {email.error}
+        </div>
+      )}
+
+      {isSent && (
+        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-900">
+          Sent to {email.contact.email}. In your Gmail Sent folder.
+        </div>
+      )}
+      {isDrafted && !isSent && (
+        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-900">
+          Drafted in Gmail —{" "}
+          {email.sendResult?.url ? (
+            <a href={email.sendResult.url} target="_blank" rel="noreferrer" className="underline">
+              open in Gmail
+            </a>
+          ) : (
+            "check your Drafts folder"
+          )}
+          .
+        </div>
+      )}
+
+      {email.state === "done" && !isSent && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={onDraft}
+            disabled={email.sending !== null}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
+          >
+            {email.sending === "draft" ? "Saving draft…" : "Save as Gmail draft"}
+          </button>
+          <button
+            onClick={onSend}
+            disabled={email.sending !== null}
+            className="rounded-md bg-[var(--color-accent)] px-4 py-1.5 text-sm font-medium text-[var(--color-accent-fg)] disabled:opacity-60"
+          >
+            {email.sending === "send" ? "Sending…" : `Send to ${email.contact.firstName || email.contact.fullName}`}
+          </button>
+        </div>
       )}
     </div>
   );
 }
 
-function SendPanel({
-  contact,
-  sending,
-  sendResult,
-  onDraft,
-  onSend,
-}: {
-  contact: Contact;
-  sending: "draft" | "send" | null;
-  sendResult: { status: string; url?: string } | null;
-  onDraft: () => void;
-  onSend: () => void;
-}) {
-  if (sendResult?.status === "sent") {
-    return (
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-        Sent to {contact.email}. It&apos;s in your Gmail Sent folder.
-      </div>
-    );
-  }
+function StatePill({ state }: { state: StepState }) {
+  const styles = {
+    idle: "bg-neutral-100 text-neutral-600",
+    running: "bg-blue-50 text-blue-700",
+    done: "bg-emerald-50 text-emerald-700",
+    error: "bg-red-50 text-red-700",
+  }[state];
+  const label = {
+    idle: "queued",
+    running: "streaming",
+    done: "ready",
+    error: "failed",
+  }[state];
   return (
-    <div className="rounded-lg border border-[var(--color-border)] p-3 text-sm">
-      {sendResult?.status === "drafted" && (
-        <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-emerald-900">
-          Drafted in Gmail —{" "}
-          {sendResult.url ? (
-            <a href={sendResult.url} target="_blank" rel="noreferrer" className="underline">
-              open in Gmail
-            </a>
-          ) : (
-            "check your Drafts folder"
-          )}{" "}
-          to review before sending.
-        </div>
-      )}
-      <div className="text-xs text-[var(--color-muted)]">
-        Sending to <span className="font-medium">{contact.fullName}</span> at{" "}
-        <span className="font-medium">{contact.email}</span>.
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          onClick={onDraft}
-          disabled={sending !== null}
-          className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
-        >
-          {sending === "draft" ? "Saving draft…" : "Save as Gmail draft"}
-        </button>
-        <button
-          onClick={onSend}
-          disabled={sending !== null}
-          className="rounded-md bg-[var(--color-accent)] px-4 py-1.5 text-sm font-medium text-[var(--color-accent-fg)] disabled:opacity-60"
-        >
-          {sending === "send" ? "Sending…" : "Send now"}
-        </button>
-      </div>
-    </div>
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${styles}`}>{label}</span>
   );
 }
 

@@ -87,7 +87,8 @@ export async function POST(req: NextRequest) {
     onComplete: async (fullText) => {
       const trimmed = fullText.trim();
       if (!trimmed) return {};
-      const title = `${company ?? "Application"} - Cold Email`.slice(0, 120);
+      const contactSuffix = contactName ? ` to ${contactName}` : "";
+      const title = `${company ?? "Application"} - Cold Email${contactSuffix}`.slice(0, 120);
       const doc = await createTextDoc(accessToken, title, trimmed, subfolderId);
       return { savedDocId: doc.id, savedDocUrl: doc.url, title };
     },

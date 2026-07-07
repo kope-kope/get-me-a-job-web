@@ -113,7 +113,22 @@ export async function findContactsByCompany(
   };
 
   if (!res.ok) {
+    const errCode = body.errors?.[0]?.id ?? "";
     const detail = body.errors?.[0]?.details || `Hunter returned HTTP ${res.status}`;
+    // Rate-limit / quota errors get their own class so the caller can
+    // degrade gracefully instead of showing a red banner.
+    if (
+      res.status === 429 ||
+      errCode.includes("usage_exceeded") ||
+      errCode.includes("plan_limit_exceeded") ||
+      /quota|limit|exceed/i.test(detail)
+    ) {
+      const err = new Error(
+        "Hunter monthly quota is exhausted. Skipping contact search — emails will use a generic salutation.",
+      );
+      (err as Error & { code?: string }).code = "HUNTER_QUOTA";
+      throw err;
+    }
     throw new Error(detail);
   }
 
