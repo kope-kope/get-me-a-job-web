@@ -10,6 +10,16 @@
   --color-accent-fg: #ffffff;
   --color-success: #059669;
   --color-success-bg: #ecfdf5;
+  /* Warning uses foreground text on a very light amber tint so contrast
+     stays strong in both modes — dark-mode overrides below. */
+  --color-warning: #b45309;
+  --color-warning-bg: #fffbeb;
+  --color-warning-fg: #111827;
+  --color-warning-border: #f59e0b;
+  --color-danger: #b91c1c;
+  --color-danger-bg: #fef2f2;
+  --color-danger-fg: #7f1d1d;
+  --color-danger-border: #fca5a5;
   --font-sans: var(--font-inter);
   --font-serif: var(--font-serif);
 }
@@ -25,6 +35,14 @@
     --color-accent-fg: #0a0a0a;
     --color-success: #34d399;
     --color-success-bg: #052e2b;
+    --color-warning: #fbbf24;
+    --color-warning-bg: #1c1917;
+    --color-warning-fg: #fef3c7;
+    --color-warning-border: #b45309;
+    --color-danger: #f87171;
+    --color-danger-bg: #1c1917;
+    --color-danger-fg: #fecaca;
+    --color-danger-border: #b91c1c;
   }
 }
 

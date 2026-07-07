@@ -327,7 +327,7 @@ export function ApplyWizard() {
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-md border border-l-4 border-[var(--color-border)] border-l-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-3 text-sm text-[var(--color-danger-fg)]">
           {error}
         </div>
       )}
@@ -360,7 +360,7 @@ export function ApplyWizard() {
           {tab === "email" && (
             <div className="space-y-4">
               {contactSkipped && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="rounded-lg border border-l-4 border-[var(--color-border)] border-l-[var(--color-warning-border)] bg-[var(--color-warning-bg)] p-3 text-sm text-[var(--color-warning-fg)]">
                   {contactSkipped}
                 </div>
               )}
@@ -395,7 +395,7 @@ function parseEmail(text: string): { subject: string; body: string } | null {
 function SavedBanner({ saved, kind }: { saved: SavedDoc; kind: string }) {
   if (saved.saveError) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <div className="rounded-lg border border-l-4 border-[var(--color-border)] border-l-[var(--color-warning-border)] bg-[var(--color-warning-bg)] p-3 text-sm text-[var(--color-warning-fg)]">
         Streamed above, but couldn&apos;t save the {kind} to Drive: {saved.saveError}
       </div>
     );
@@ -457,7 +457,7 @@ function EmailCard({
       </pre>
 
       {email.error && (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+        <div className="mt-3 rounded-md border border-l-4 border-[var(--color-border)] border-l-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-2 text-sm text-[var(--color-danger-fg)]">
           {email.error}
         </div>
       )}

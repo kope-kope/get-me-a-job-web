@@ -124,7 +124,7 @@ export async function findContactsByCompany(
       /quota|limit|exceed/i.test(detail)
     ) {
       const err = new Error(
-        "Hunter monthly quota is exhausted. Skipping contact search — emails will use a generic salutation.",
+        "Hunter's monthly free-tier quota is exhausted. Skipping contact search for now; the resume and cover letter still saved. Reset happens on the 1st of next month, or you can upgrade the Hunter plan.",
       );
       (err as Error & { code?: string }).code = "HUNTER_QUOTA";
       throw err;
