@@ -5,6 +5,8 @@ declare module "next-auth" {
   interface Session {
     accessToken?: string;
     grantedScopes?: string[];
+    /** Set when the Google refresh flow failed — client should re-sign-in. */
+    error?: string;
   }
 }
 
@@ -14,5 +16,6 @@ declare module "next-auth/jwt" {
     refreshToken?: string;
     expiresAt?: number;
     grantedScopes?: string[];
+    error?: string;
   }
 }

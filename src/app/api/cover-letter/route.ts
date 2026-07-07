@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, hasGrantedScopes } from "@/auth";
+import { auth, guardGoogleSession, sessionGuardResponse } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
 import { findMasterResume, findStoriesDoc, readDocPlaintext } from "@/lib/google";
 import { prompts } from "@/lib/prompts";
@@ -10,14 +10,9 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  if (!hasGrantedScopes(session, DRIVE_SCOPES) || !session.accessToken) {
-    return NextResponse.json(
-      { error: "Google Drive not connected — I need to read your master resume before writing." },
-      { status: 403 },
-    );
-  }
+  const issue = guardGoogleSession(session, DRIVE_SCOPES);
+  if (issue) return sessionGuardResponse(issue);
+  const accessToken = session!.accessToken!;
 
   const { jd, company, role } = (await req.json()) as {
     jd?: string;
@@ -26,7 +21,7 @@ export async function POST(req: NextRequest) {
   };
   if (!jd?.trim()) return NextResponse.json({ error: "missing jd" }, { status: 400 });
 
-  const master = await findMasterResume(session.accessToken);
+  const master = await findMasterResume(accessToken);
   if (!master) {
     return NextResponse.json(
       {
@@ -36,16 +31,16 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const resumeText = await readDocPlaintext(session.accessToken, master.id);
+  const resumeText = await readDocPlaintext(accessToken, master.id);
   if (!resumeText.trim()) {
     return NextResponse.json({ error: "master resume is empty" }, { status: 400 });
   }
 
   // Stories are optional. If present, they let Claude write a much more
   // personal letter grounded in real anchor stories.
-  const stories = await findStoriesDoc(session.accessToken);
+  const stories = await findStoriesDoc(accessToken);
   const storiesText = stories
-    ? (await readDocPlaintext(session.accessToken, stories.id)).trim()
+    ? (await readDocPlaintext(accessToken, stories.id)).trim()
     : "";
 
   const userAddressing = company

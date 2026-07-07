@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, hasGrantedScopes } from "@/auth";
+import { auth, guardGoogleSession, sessionGuardResponse } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
 import {
   copyDoc,
@@ -98,18 +98,12 @@ async function generatePlan(masterResumeText: string, jd: string): Promise<Tailo
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  if (!hasGrantedScopes(session, DRIVE_SCOPES) || !session.accessToken) {
-    return NextResponse.json(
-      { error: "Google Drive not connected. Finish onboarding first." },
-      { status: 403 },
-    );
-  }
+  const issue = guardGoogleSession(session, DRIVE_SCOPES);
+  if (issue) return sessionGuardResponse(issue);
+  const accessToken = session!.accessToken!;
 
   const { jd } = (await req.json()) as { jd?: string };
   if (!jd?.trim()) return NextResponse.json({ error: "missing jd" }, { status: 400 });
-  const accessToken = session.accessToken;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({

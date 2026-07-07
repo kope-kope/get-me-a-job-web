@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, hasGrantedScopes } from "@/auth";
+import { auth, guardGoogleSession, sessionGuardResponse } from "@/auth";
 import { gmailClient } from "@/lib/google";
 import { GMAIL_SCOPES } from "@/lib/scopes";
 
@@ -18,14 +18,9 @@ function buildRawMessage({ to, subject, body }: { to: string; subject: string; b
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  if (!hasGrantedScopes(session, GMAIL_SCOPES) || !session.accessToken) {
-    return NextResponse.json(
-      { error: "Gmail not connected. Go to onboarding and click Connect on the Gmail card." },
-      { status: 403 },
-    );
-  }
+  const issue = guardGoogleSession(session, GMAIL_SCOPES);
+  if (issue) return sessionGuardResponse(issue);
+  const accessToken = session!.accessToken!;
 
   const { mode, to, subject, body } = (await req.json()) as {
     mode?: "draft" | "send";
@@ -38,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const raw = buildRawMessage({ to, subject, body });
-  const gmail = gmailClient(session.accessToken);
+  const gmail = gmailClient(accessToken);
 
   try {
     if (mode === "send") {

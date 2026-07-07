@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, hasGrantedScopes } from "@/auth";
+import { auth, guardGoogleSession, sessionGuardResponse } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
 import { extractDocId, registerStoriesDoc } from "@/lib/google";
 
@@ -7,14 +7,9 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  if (!hasGrantedScopes(session, DRIVE_SCOPES) || !session.accessToken) {
-    return NextResponse.json(
-      { error: "Google Drive not connected. Go back to onboarding and click Connect on the Drive card." },
-      { status: 403 },
-    );
-  }
+  const issue = guardGoogleSession(session, DRIVE_SCOPES);
+  if (issue) return sessionGuardResponse(issue);
+  const accessToken = session!.accessToken!;
 
   const { docUrl } = (await req.json()) as { docUrl?: string };
   if (!docUrl?.trim()) return NextResponse.json({ error: "missing docUrl" }, { status: 400 });
@@ -27,7 +22,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await registerStoriesDoc(session.accessToken, docUrl);
+    const result = await registerStoriesDoc(accessToken, docUrl);
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "register failed";
