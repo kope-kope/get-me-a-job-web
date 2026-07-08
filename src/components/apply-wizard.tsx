@@ -77,6 +77,10 @@ type LookupResult = {
 type EmailStream = {
   contact: Contact;
   text: string;
+  /** Editable Subject line, parsed from the stream once drafting completes. */
+  subject: string;
+  /** Editable body, parsed from the stream once drafting completes. */
+  body: string;
   saved: SavedDoc | null;
   state: StepState;
   sending: "draft" | "send" | null;
@@ -102,7 +106,15 @@ function allDone(state: Record<string, StepState>) {
   return Object.values(state).every((s) => s === "done");
 }
 
-export function ApplyWizard() {
+export function ApplyWizard({
+  emailProvider = "gmail",
+  emailSupportsDrafts = true,
+}: {
+  /** Active email backend, from the server (EMAIL_PROVIDER). */
+  emailProvider?: string;
+  /** Whether the active provider can save drafts (Gmail only, today). */
+  emailSupportsDrafts?: boolean;
+} = {}) {
   const [jd, setJd] = useState("");
   const [started, setStarted] = useState(false);
   const [state, setState] = useState<Record<string, StepState>>({ ...INITIAL_STATE });
@@ -315,6 +327,8 @@ export function ApplyWizard() {
         captured.contacts.map((c) => ({
           contact: c,
           text: "",
+          subject: "",
+          body: "",
           saved: null,
           state: "idle",
           sending: null,
@@ -350,7 +364,21 @@ export function ApplyWizard() {
               },
             },
           );
-          updateEmail(i, { state: "done" });
+          // Parse the streamed draft into editable Subject/body fields. If the
+          // model didn't emit a clean "Subject: …" header, fall back to an empty
+          // subject and the full text as the body so the user can still edit it.
+          setEmails((prev) =>
+            prev.map((e, idx) => {
+              if (idx !== i) return e;
+              const parsed = parseEmail(e.text);
+              return {
+                ...e,
+                state: "done",
+                subject: parsed?.subject ?? e.subject,
+                body: parsed?.body ?? e.text.trim(),
+              };
+            }),
+          );
         } catch (err) {
           updateEmail(i, {
             state: "error",
@@ -373,10 +401,11 @@ export function ApplyWizard() {
   async function sendEmail(index: number, mode: "draft" | "send") {
     const email = emails[index];
     if (!email) return;
-    const parsed = parseEmail(email.text);
-    if (!parsed) {
+    const subject = email.subject.trim();
+    const body = email.body.trim();
+    if (!subject || !body) {
       updateEmail(index, {
-        error: "Couldn't parse Subject/body from the streamed email. Edit the doc and send from Gmail directly.",
+        error: "Add a subject and body before sending.",
       });
       return;
     }
@@ -388,8 +417,8 @@ export function ApplyWizard() {
         body: JSON.stringify({
           mode,
           to: email.contact.email,
-          subject: parsed.subject,
-          body: parsed.body,
+          subject,
+          body,
         }),
       });
       const data = (await res.json()) as {
@@ -521,6 +550,10 @@ export function ApplyWizard() {
                   key={e.contact.email}
                   index={i}
                   email={e}
+                  supportsDrafts={emailSupportsDrafts}
+                  providerLabel={emailProvider}
+                  onEditSubject={(v) => updateEmail(i, { subject: v })}
+                  onEditBody={(v) => updateEmail(i, { body: v })}
                   onDraft={() => sendEmail(i, "draft")}
                   onSend={() => sendEmail(i, "send")}
                 />
@@ -607,16 +640,25 @@ function SavedBanner({ saved, kind }: { saved: SavedDoc; kind: string }) {
 function EmailCard({
   index,
   email,
+  supportsDrafts,
+  providerLabel,
+  onEditSubject,
+  onEditBody,
   onDraft,
   onSend,
 }: {
   index: number;
   email: EmailStream;
+  supportsDrafts: boolean;
+  providerLabel: string;
+  onEditSubject: (value: string) => void;
+  onEditBody: (value: string) => void;
   onDraft: () => void;
   onSend: () => void;
 }) {
   const isSent = email.sendResult?.status === "sent";
   const isDrafted = email.sendResult?.status === "drafted";
+  const editable = email.state === "done" && !isSent;
 
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-4">
@@ -637,7 +679,7 @@ function EmailCard({
             {email.contact.verificationStatus && (
               <>
                 {" · verified "}
-                <span className={email.contact.verificationStatus === "valid" ? "text-emerald-600" : "text-[var(--color-warning)]"}>
+                <span className={email.contact.verificationStatus === "valid" ? "font-medium text-[var(--color-foreground)]" : "text-[var(--color-warning)]"}>
                   {email.contact.verificationStatus}
                 </span>
               </>
@@ -658,9 +700,37 @@ function EmailCard({
         </div>
       )}
 
-      <pre className="mt-3 max-h-[360px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-3 text-sm whitespace-pre-wrap font-sans">
-        {email.text || (email.state === "idle" ? "Queued." : "…")}
-      </pre>
+      {editable ? (
+        <div className="mt-3 space-y-2">
+          <div>
+            <label className="text-xs font-medium text-[var(--color-muted)]">Subject</label>
+            <input
+              value={email.subject}
+              onChange={(e) => onEditSubject(e.target.value)}
+              placeholder="Subject line"
+              disabled={email.sending !== null}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm disabled:opacity-60"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-[var(--color-muted)]">Message</label>
+            <textarea
+              value={email.body}
+              onChange={(e) => onEditBody(e.target.value)}
+              placeholder="Email body — edit before you send."
+              disabled={email.sending !== null}
+              className="mt-1 h-56 w-full rounded-lg border p-3 text-sm disabled:opacity-60"
+            />
+          </div>
+          <p className="text-xs text-[var(--color-muted)]">
+            Edit anything above before sending. Sends to {email.contact.email}.
+          </p>
+        </div>
+      ) : (
+        <pre className="mt-3 max-h-[360px] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-subtle)] p-3 text-sm whitespace-pre-wrap font-sans">
+          {email.text || (email.state === "idle" ? "Queued." : "…")}
+        </pre>
+      )}
 
       {email.error && (
         <div className="mt-3 rounded-md border border-l-4 border-[var(--color-border)] border-l-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-2 text-sm text-[var(--color-danger-fg)]">
@@ -669,12 +739,13 @@ function EmailCard({
       )}
 
       {isSent && (
-        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-900">
-          Sent to {email.contact.email}. In your Gmail Sent folder.
+        <div className="mt-3 rounded-md border border-[var(--color-border)] bg-[var(--color-success-bg)] p-2 text-sm text-[var(--color-foreground)]">
+          Sent to {email.contact.email}
+          {providerLabel === "gmail" ? ". In your Gmail Sent folder." : "."}
         </div>
       )}
       {isDrafted && !isSent && (
-        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-900">
+        <div className="mt-3 rounded-md border border-[var(--color-border)] bg-[var(--color-success-bg)] p-2 text-sm text-[var(--color-foreground)]">
           Drafted in Gmail —{" "}
           {email.sendResult?.url ? (
             <a href={email.sendResult.url} target="_blank" rel="noreferrer" className="underline">
@@ -687,15 +758,17 @@ function EmailCard({
         </div>
       )}
 
-      {email.state === "done" && !isSent && (
+      {editable && (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            onClick={onDraft}
-            disabled={email.sending !== null}
-            className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
-          >
-            {email.sending === "draft" ? "Saving draft…" : "Save as Gmail draft"}
-          </button>
+          {supportsDrafts && (
+            <button
+              onClick={onDraft}
+              disabled={email.sending !== null}
+              className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-[var(--color-subtle)] disabled:opacity-60"
+            >
+              {email.sending === "draft" ? "Saving draft…" : "Save as Gmail draft"}
+            </button>
+          )}
           <button
             onClick={onSend}
             disabled={email.sending !== null}

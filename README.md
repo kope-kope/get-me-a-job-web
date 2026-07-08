@@ -57,6 +57,69 @@ Everything lives in the user's Google Drive under `Job Search/[Company] - [Role]
    ```
    Open <http://localhost:3000>.
 
+## Make it your own
+
+This is meant to be forked. Three things you'll likely want to change, none of
+them requiring a database or a rebuild of the pipeline.
+
+### 1. Edit the prompts
+
+Every generation step is driven by a plain Markdown file in
+[`src/lib/prompts/`](src/lib/prompts/):
+
+| File | Drives |
+| --- | --- |
+| `resume-tailor.md` | Bullet rewrites for the tailored resume |
+| `cover-letter.md` | The cover letter |
+| `network-outreach.md` | Cold outreach emails |
+| `company-research.md` | Contact research |
+| `interview-prep.md` | Interview prep flow |
+| `humanizer.md` | The "don't sound like a robot" rules |
+
+Edit the file, save, refresh — that's it. They're read from disk at request
+time. A shared override (`WEB_CONTEXT_OVERRIDE` in
+[`src/lib/prompts/index.ts`](src/lib/prompts/index.ts)) is appended to every
+prompt to strip plugin-era "read this file" instructions and enforce the
+humanizer rules; edit it if you want to change behaviour across *all* prompts at
+once.
+
+### 2. Bring your own keys
+
+Everything is configured through `.env.local` (copied from
+[`.env.example`](.env.example)). No keys are hardcoded.
+
+| Key | Required? | For |
+| --- | --- | --- |
+| `AUTH_SECRET` | Yes | Session encryption |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Drive + Docs (and Gmail, if you use it) |
+| `ANTHROPIC_API_KEY` | Yes | All generation |
+| `HUNTER_API_KEY` | Optional | Finding contact emails (skipped if absent) |
+| `EMAIL_PROVIDER` + provider keys | Optional | See below (defaults to Gmail) |
+
+### 3. Swap the email integration
+
+Outreach can be sent through **Gmail** (default), **Resend**, or **SMTP**. Set
+`EMAIL_PROVIDER` in `.env.local`:
+
+- **`gmail`** (default) — sends from the signed-in user's own Gmail using their
+  OAuth grant. Can also save drafts. No extra keys.
+- **`resend`** — set `RESEND_API_KEY` and `EMAIL_FROM` (a Resend-verified
+  sender). Send-only.
+- **`smtp`** — set `SMTP_HOST`, `EMAIL_FROM`, and optionally `SMTP_PORT` /
+  `SMTP_USER` / `SMTP_PASS`. Works with any mail server. Send-only.
+
+Resend and SMTP are send-only, so the "Save as draft" button is hidden for them;
+"Send" is always available. Whichever you pick, the drafted email is fully
+**editable in the UI** (subject + body) before it goes out.
+
+Adding another provider is a small adapter: implement the `EmailProvider`
+interface in [`src/lib/email/types.ts`](src/lib/email/types.ts) (see
+`gmail.ts` / `resend.ts` / `smtp.ts` for examples) and wire it into
+`getEmailProvider()` in [`src/lib/email/index.ts`](src/lib/email/index.ts).
+
+> Note: Google sign-in is still required regardless of email provider, because
+> Drive + Docs are where tailored resumes and letters are saved.
+
 ## Deploy to Vercel
 
 1. Import the repo at [vercel.com/new](https://vercel.com/new).
@@ -99,6 +162,7 @@ src/
 └── lib/
     ├── anthropic.ts                    Claude client
     ├── google.ts                       Drive/Docs/Gmail helpers
+    ├── email/                          pluggable send: gmail | resend | smtp
     ├── hunter.ts                       Domain Search + Email Finder
     ├── research.ts                     Claude + web_search research
     ├── humanize.ts                     em-dash + curly-quote stream sanitizer
