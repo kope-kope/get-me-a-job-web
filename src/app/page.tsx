@@ -16,7 +16,7 @@ export default async function LandingPage() {
       </div>
 
       <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
-        Paste a job description.
+        Tailor your materials.
         <br />
         Apply in 10 minutes.
       </h1>
