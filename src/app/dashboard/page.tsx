@@ -34,7 +34,7 @@ export default async function Dashboard() {
       </header>
 
       {needsOnboarding ? (
-        <div className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+        <div className="mt-8 rounded-xl border border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] p-4 text-sm text-[var(--color-warning-fg)]">
           <div className="font-medium">Finish onboarding to get started</div>
           <p className="mt-1 text-[var(--color-muted)]">
             Connect Google Drive so we can save your tailored resumes and cover letters.
@@ -47,7 +47,7 @@ export default async function Dashboard() {
           </Link>
         </div>
       ) : needsResume ? (
-        <div className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+        <div className="mt-8 rounded-xl border border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] p-4 text-sm text-[var(--color-warning-fg)]">
           <div className="font-medium">Register your master resume</div>
           <p className="mt-1 text-[var(--color-muted)]">
             Paste a Google Doc link to your resume so every tailored version can start from it.
@@ -140,19 +140,19 @@ export default async function Dashboard() {
         <div className="flex flex-wrap gap-x-3 gap-y-1">
           <span>
             Drive:{" "}
-            <span className={status.drive ? "text-emerald-600" : "text-amber-600"}>
+            <span className={status.drive ? "font-medium text-[var(--color-foreground)]" : "text-[var(--color-muted)]"}>
               {status.drive ? "connected" : "not connected"}
             </span>
           </span>
           <span>
             Gmail:{" "}
-            <span className={status.gmail ? "text-emerald-600" : "text-amber-600"}>
+            <span className={status.gmail ? "font-medium text-[var(--color-foreground)]" : "text-[var(--color-muted)]"}>
               {status.gmail ? "connected" : "not connected"}
             </span>
           </span>
           <span>
             Master resume:{" "}
-            <span className={master ? "text-emerald-600" : "text-amber-600"}>
+            <span className={master ? "font-medium text-[var(--color-foreground)]" : "text-[var(--color-muted)]"}>
               {master ? "registered" : "not registered"}
             </span>
           </span>

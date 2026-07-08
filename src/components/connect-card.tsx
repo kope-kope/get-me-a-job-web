@@ -45,10 +45,10 @@ export function ConnectCard({
   const c = CONFIG[integration];
   const [busy, setBusy] = useState(false);
 
-  const bgClass = c.tint === "success" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700";
+  const bgClass = "bg-[var(--color-subtle)] text-[var(--color-foreground)]";
 
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-[var(--color-border)] bg-white p-4 dark:bg-neutral-900">
+    <div className="flex items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-4">
       <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${bgClass}`}>
         {c.icon}
       </div>

@@ -27,7 +27,7 @@ export default function ExampleStoriesPage() {
         Result has a number or an observable change.
       </p>
 
-      <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <p className="mt-3 rounded-md border border-[var(--color-warning-border)] bg-[var(--color-warning-bg)] p-3 text-sm text-[var(--color-warning-fg)]">
         <strong>Aim for 3&ndash;5 stories</strong> that cover: leadership without authority, failure
         and recovery, data-driven decision under ambiguity, and a cross-functional conflict you
         navigated. Every interviewer draws from those buckets.
