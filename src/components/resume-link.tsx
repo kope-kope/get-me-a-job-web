@@ -79,12 +79,12 @@ export function ResumeLink() {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://docs.google.com/document/d/…"
-          className="mt-2 w-full rounded-lg border border-[var(--color-border)] bg-white px-3 py-2.5 text-sm dark:bg-neutral-900"
+          className="mt-2 w-full rounded-lg border px-3 py-2.5 text-sm"
         />
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-md border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-3 text-sm text-[var(--color-danger-fg)]">
           {error}
         </div>
       )}

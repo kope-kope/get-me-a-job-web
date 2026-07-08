@@ -1,48 +1,74 @@
 @import "tailwindcss";
 
+/* Black-and-white design system.
+   Every surface/text pair is defined together in both schemes so field
+   background and field text can never drift out of sync. No hues. */
 @theme {
   --color-background: #ffffff;
   --color-foreground: #0a0a0a;
   --color-muted: #6b7280;
-  --color-subtle: #f5f5f4;
-  --color-border: #e5e7eb;
-  --color-accent: #1e40af;
+  --color-subtle: #f5f5f5;
+  --color-border: #e5e5e5;
+
+  /* Primary action = ink on paper (inverts in dark mode below). */
+  --color-accent: #0a0a0a;
   --color-accent-fg: #ffffff;
-  --color-success: #059669;
-  --color-success-bg: #ecfdf5;
-  /* Warning uses foreground text on a very light amber tint so contrast
-     stays strong in both modes — dark-mode overrides below. */
-  --color-warning: #b45309;
-  --color-warning-bg: #fffbeb;
-  --color-warning-fg: #111827;
-  --color-warning-border: #f59e0b;
-  --color-danger: #b91c1c;
-  --color-danger-bg: #fef2f2;
-  --color-danger-fg: #7f1d1d;
-  --color-danger-border: #fca5a5;
+
+  /* Form fields: dark text on a white field in light mode. */
+  --color-field: #ffffff;
+  --color-field-fg: #0a0a0a;
+  --color-field-border: #d4d4d4;
+  --color-field-placeholder: #9ca3af;
+  --color-ring: #0a0a0a;
+
+  /* Status surfaces, monochrome — meaning carried by copy + border weight. */
+  --color-success: #0a0a0a;
+  --color-success-bg: #f5f5f5;
+  --color-warning: #0a0a0a;
+  --color-warning-bg: #f5f5f5;
+  --color-warning-fg: #0a0a0a;
+  --color-warning-border: #a3a3a3;
+  --color-danger: #0a0a0a;
+  --color-danger-bg: #f5f5f5;
+  --color-danger-fg: #0a0a0a;
+  --color-danger-border: #0a0a0a;
+
   --font-sans: var(--font-inter);
   --font-serif: var(--font-serif);
 }
 
+/* Dark-scheme overrides. NOTE: these must be a plain `:root` block inside a
+   real @media query — nesting `@media { @theme { … } }` does NOT work in
+   Tailwind v4 (values get emitted unconditionally, freezing the page in one
+   theme). @theme vars land on :root, so a :root media override flips them. */
 @media (prefers-color-scheme: dark) {
-  @theme {
+  :root {
     --color-background: #0a0a0a;
     --color-foreground: #fafafa;
     --color-muted: #a1a1aa;
     --color-subtle: #171717;
     --color-border: #262626;
-    --color-accent: #60a5fa;
+
+    --color-accent: #fafafa;
     --color-accent-fg: #0a0a0a;
-    --color-success: #34d399;
-    --color-success-bg: #052e2b;
-    --color-warning: #fbbf24;
-    --color-warning-bg: #1c1917;
-    --color-warning-fg: #fef3c7;
-    --color-warning-border: #b45309;
-    --color-danger: #f87171;
-    --color-danger-bg: #1c1917;
-    --color-danger-fg: #fecaca;
-    --color-danger-border: #b91c1c;
+
+    /* White text on a near-black field in dark mode. */
+    --color-field: #171717;
+    --color-field-fg: #fafafa;
+    --color-field-border: #3f3f46;
+    --color-field-placeholder: #71717a;
+    --color-ring: #fafafa;
+
+    --color-success: #fafafa;
+    --color-success-bg: #171717;
+    --color-warning: #fafafa;
+    --color-warning-bg: #171717;
+    --color-warning-fg: #fafafa;
+    --color-warning-border: #52525b;
+    --color-danger: #fafafa;
+    --color-danger-bg: #171717;
+    --color-danger-fg: #fafafa;
+    --color-danger-border: #fafafa;
   }
 }
 
@@ -50,4 +76,28 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Base form styling so every input is legible without per-component color
+   utilities. Field background and text are a coordinated pair — they flip
+   together with the scheme, so no white-on-white / black-on-black. */
+input,
+textarea,
+select {
+  background-color: var(--color-field);
+  color: var(--color-field-fg);
+  border-color: var(--color-field-border);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-field-placeholder);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--color-ring);
+  box-shadow: 0 0 0 1px var(--color-ring);
 }

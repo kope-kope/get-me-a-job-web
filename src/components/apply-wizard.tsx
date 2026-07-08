@@ -419,7 +419,7 @@ export function ApplyWizard() {
           value={jd}
           onChange={(e) => setJd(e.target.value)}
           placeholder="Paste the full JD here — title, responsibilities, requirements, everything."
-          className="mt-2 h-72 w-full rounded-lg border border-[var(--color-border)] bg-white p-4 text-sm dark:bg-neutral-900"
+          className="mt-2 h-72 w-full rounded-lg border p-4 text-sm"
         />
         <div className="mt-4 flex justify-end">
           <button
@@ -570,7 +570,7 @@ function CompletionBanner({
         </button>
         <a
           href="/dashboard"
-          className="rounded-md border border-[var(--color-border)] bg-white px-4 py-2 text-sm hover:bg-neutral-50 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+          className="rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-4 py-2 text-sm hover:bg-[var(--color-subtle)]"
         >
           Back to dashboard
         </a>
@@ -711,10 +711,10 @@ function EmailCard({
 
 function StatePill({ state }: { state: StepState }) {
   const styles = {
-    idle: "bg-neutral-100 text-neutral-600",
-    running: "bg-blue-50 text-blue-700",
-    done: "bg-emerald-50 text-emerald-700",
-    error: "bg-red-50 text-red-700",
+    idle: "bg-[var(--color-subtle)] text-[var(--color-muted)]",
+    running: "bg-[var(--color-subtle)] text-[var(--color-foreground)]",
+    done: "bg-[var(--color-accent)] text-[var(--color-accent-fg)]",
+    error: "border border-[var(--color-foreground)] text-[var(--color-foreground)]",
   }[state];
   const label = {
     idle: "queued",
@@ -780,9 +780,9 @@ function ResumeTab({
           {plan.bullets.map((b, i) => (
             <li key={i} className="rounded-lg border border-[var(--color-border)] p-3 text-sm">
               <div className="text-xs uppercase text-[var(--color-muted)]">Before</div>
-              <div className="mt-1 text-red-800/90 line-through">{b.oldText}</div>
+              <div className="mt-1 text-[var(--color-muted)] line-through">{b.oldText}</div>
               <div className="mt-3 text-xs uppercase text-[var(--color-muted)]">After</div>
-              <div className="mt-1 text-emerald-800">{b.newText}</div>
+              <div className="mt-1 text-[var(--color-foreground)]">{b.newText}</div>
               {b.reason && (
                 <div className="mt-2 text-xs text-[var(--color-muted)] italic">{b.reason}</div>
               )}
@@ -825,10 +825,10 @@ function ProgressRow({
   detail?: string;
 }) {
   const dot = {
-    idle: "bg-neutral-300",
-    running: "bg-blue-500 animate-pulse",
-    done: "bg-emerald-500",
-    error: "bg-red-500",
+    idle: "bg-[var(--color-border)]",
+    running: "bg-[var(--color-foreground)] animate-pulse",
+    done: "bg-[var(--color-foreground)]",
+    error: "border-2 border-[var(--color-foreground)]",
   }[state];
   return (
     <div className="flex items-center gap-3 py-1.5 text-sm">
