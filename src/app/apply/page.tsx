@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, hasGrantedScopes } from "@/auth";
 import { DRIVE_SCOPES } from "@/lib/scopes";
+import { emailProviderId, providerSupportsDrafts } from "@/lib/email";
 import { ApplyWizard } from "@/components/apply-wizard";
 
 export default async function ApplyPage() {
@@ -26,7 +27,10 @@ export default async function ApplyPage() {
         and save the tailored doc to a per-job folder in Drive.
       </p>
 
-      <ApplyWizard />
+      <ApplyWizard
+        emailProvider={emailProviderId()}
+        emailSupportsDrafts={providerSupportsDrafts()}
+      />
     </main>
   );
 }
